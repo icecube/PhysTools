@@ -1,0 +1,337 @@
+#!/bin/bash
+
+check_pkgconfig(){
+	if [ "$CHECKED_PKGCONFIG" ]; then return; fi
+	echo "Looking for pkg-config..."
+	which pkg-config 2>&1 > /dev/null
+	if [ "$?" -ne 0 ]; then
+		echo "Error: pkg-config not found; you will need to specify library locations manually" 1>&2
+		exit 1
+	fi
+	CHECKED_PKGCONFIG=1
+}
+
+find_package(){
+	PKG=$1
+	VAR_PREFIX=`echo $PKG | tr [:lower:] [:upper:]`
+	TMP_FOUND=`eval echo "$"${VAR_PREFIX}_FOUND`
+	if [ "$TMP_FOUND" ]; then return; fi
+	check_pkgconfig
+	echo "Looking for $PKG..."
+
+	pkg-config --exists $PKG
+	if [ "$?" -ne 0 ]; then
+		echo " $PKG not found with pkg-config"
+		return
+	fi
+	if [ $# -ge 2 ]; then
+		MIN_VERSION=$2
+		pkg-config --atleast-version $MIN_VERSION $PKG
+		if [ "$?" -ne 0 ]; then
+			echo "Error: installed $PKG version ("`pkg-config --modversion $PKG`") is too old; version >=$MIN_VERSION is required" 1>&2
+			exit 1
+		fi
+	fi
+	echo " Found $PKG version `pkg-config --modversion $PKG`"
+	eval ${VAR_PREFIX}_FOUND=1
+	eval ${VAR_PREFIX}_VERSION=\"`pkg-config --modversion $PKG`\"
+	eval ${VAR_PREFIX}_CFLAGS=\"`pkg-config --cflags $PKG`\"
+	eval ${VAR_PREFIX}_LDFLAGS=\"`pkg-config --libs $PKG`\"
+	eval ${VAR_PREFIX}_INCDIR=\"`pkg-config --variable=includedir $PKG`\"
+	eval ${VAR_PREFIX}_LIBDIR=\"`pkg-config --variable=libdir $PKG`\"
+}
+
+find_hdf5(){
+	PKG=hdf5
+	echo "Looking for $PKG..."
+	VAR_PREFIX=`echo $PKG | tr [:lower:] [:upper:]`
+	TMP_FOUND=`eval echo "$"${VAR_PREFIX}_FOUND`
+	if [ "$TMP_FOUND" ]; then return; fi
+
+	which h5cc 2>&1 > /dev/null
+	if [ "$?" -ne 0 ]; then return; fi
+
+	which h5ls 2>&1 > /dev/null
+	if [ "$?" -eq 0 ]; then
+		HDF5_VERSION=`h5ls --version | sed 's/.* \([0-9.]*\)/\1/'`
+		echo " Found $PKG version $HDF5_VERSION via executables in \$PATH"
+		if [ $# -ge 1 ]; then
+			MIN_VERSION=$1
+			#TODO: actually check version
+		fi
+	else
+		echo " h5ls not found; cannot check $PKG version"
+		echo " Proceeding with unknown version and hoping for the best"
+	fi
+	HDF5_COMPILE_COMMAND=`h5cc -show`
+	for item in $HDF5_COMPILE_COMMAND; do
+		item=`echo "$item" | sed 's| |\n|g' | sed -n 's/.*-L\([^ ]*\).*/\1/p'`
+		if [ -n "$item" ]; then
+			POSSIBLE_HDF5_LIBDIRS="$POSSIBLE_HDF5_LIBDIRS
+				$item"
+		fi
+	done
+	for HDF5_LIBDIR in $POSSIBLE_HDF5_LIBDIRS; do
+		if [ -d $HDF5_LIBDIR -a \( -e $HDF5_LIBDIR/libhdf5.a -o -e $HDF5_LIBDIR/libhdf5.so \) ]; then
+			break
+		fi
+	done
+	if [ ! -d $HDF5_LIBDIR -o ! \( -e $HDF5_LIBDIR/libhdf5.a -o -e $HDF5_LIBDIR/libhdf5.so \) ]; then
+		echo " Unable to guess $PKG library directory"
+		return
+	fi
+	POSSIBLE_HDF5_INCDIRS=`echo "$HDF5_COMPILE_COMMAND" | sed 's| |\n|g' | sed -n 's/.*-I\([^ ]*\).*/\1/p'`
+	POSSIBLE_HDF5_INCDIRS="$POSSIBLE_HDF5_INCDIRS ${HDF5_LIBDIR}/../include"
+	for HDF5_INCDIR in $POSSIBLE_HDF5_INCDIRS; do
+		if [ -d $HDF5_INCDIR -a -e $HDF5_INCDIR/H5version.h ]; then
+			break
+		fi
+	done
+	if [ ! -d $HDF5_INCDIR -o ! $HDF5_INCDIR/H5version.h ]; then
+		echo " Unable to guess $PKG include directory"
+		return
+	fi
+
+	HDF5_CFLAGS="-I${HDF5_INCDIR}"
+	HDF5_LDFLAGS=`echo "$HDF5_COMPILE_COMMAND" | \
+	sed 's/ /\\
+	/g' | \
+	sed -n -E \
+	-e '/^[[:space:]]*-l/p' \
+	-e '/^[[:space:]]*-L/p' \
+	-e '/^[[:space:]]*-Wl,/p' \
+	-e 's/^[[:space:]]*.*lib([^.]*)\.a/-l\1/p' \
+	-e 's/^[[:space:]]*.*lib([^.]*)\.so/-l\1/p' \
+	-e 's/^[[:space:]]*.*lib([^.]*)\.dylib/-l\1/p' `
+	HDF5_LDFLAGS=`echo $HDF5_LDFLAGS` # collapse to single line
+
+	HDF5_FOUND=1
+}
+
+find_boost(){
+	PKG=boost
+	VAR_PREFIX=`echo $PKG | tr [:lower:] [:upper:]`
+	TMP_FOUND=`eval echo "$"${VAR_PREFIX}_FOUND`
+	if [ "$TMP_FOUND" ]; then return; fi
+
+	if [ -z "$BOOST_INCDIR" -a -z "$BOOST_LIBDIR" ] ; then
+		# Try looking here; if it isn't found we'll just make the user tell us.
+		# It isn't worth trying to enumerate all of the retarded places every linux
+		# distro has tried putting stuff.
+		BOOST_PREFIX_GUESS=/usr/local
+		GUESSING_BOOST_LOCATION=1
+	fi
+
+	if [ -z "$BOOST_INCDIR" ]; then
+		BOOST_INCDIR="${BOOST_PREFIX_GUESS}/include"
+	fi
+	if [ ! -d $BOOST_INCDIR -o ! -f $BOOST_INCDIR/boost/version.hpp ]; then
+		if [ -n "$GUESSING_BOOST_LOCATION" ]; then
+			echo " Unable to guess $PKG include directory"
+		else
+			echo " Could not find boost headers in manually specified location (${BOOST_INCDIR})"
+		fi
+		return
+	fi
+
+	BOOST_VERSION=`< $BOOST_INCDIR/boost/version.hpp sed -n 's/.*BOOST_LIB_VERSION[^"]*"\([^"]*\)"/\1/p' | sed 's/_/./g'`
+	echo " Found $PKG version $BOOST_VERSION headers"
+
+	if [ -z "$BOOST_LIBDIR" ]; then
+		BOOST_LIBDIR="${BOOST_PREFIX_GUESS}/lib"
+	fi
+	if [ -d $BOOST_LIBDIR ]; then
+		POSSIBLE_BOOST_LIBS=`ls ${BOOST_LIBDIR}/libboost_system* 2>/dev/null`
+		if [ -z "$POSSIBLE_BOOST_LIBS" ]; then
+			if [ -n "$GUESSING_BOOST_LOCATION" ]; then
+				echo " Unable to guess $PKG include directory"
+			else
+				echo " Could not find boost libraries in manually specified location (${BOOST_LIBDIR})"
+			fi
+			return
+		else
+			for lib in $BOOST_LIB_SUFFIX; do
+				BOOST_LIB_SUFFIX=`echo ${POSSIBLE_BOOST_LIBS} | sed -n -E 's/.*libboost_system([^.]*)\.(a|so|dylib)$/\1/p'`
+				if [ -n "$BOOST_LIB_SUFFIX" ]; then break; fi
+			done
+			echo "  boost library suffix appears to be '${BOOST_LIB_SUFFIX}'"
+		fi
+	else
+		if [ -n "$GUESSING_BOOST_LOCATION" ]; then
+			echo " Unable to guess $PKG include directory"
+		else
+			echo " Could not find boost libraries in manually specified location (${BOOST_LIBDIR})"
+		fi
+		return
+	fi
+
+	BOOST_CFLAGS="-I${BOOST_INCDIR}"
+	BOOST_LDFLAGS="-L${BOOST_LIBDIR} -lboost_system${BOOST_LIB_SUFFIX}  -lboost_iostreams${BOOST_LIB_SUFFIX}"
+
+	BOOST_FOUND=1
+}
+
+ensure_found(){
+	PKG=$1
+	VAR_PREFIX=`echo $PKG | tr [:lower:] [:upper:]`
+	TMP_FOUND=`eval echo "$"${VAR_PREFIX}_FOUND`
+	if [ "$TMP_FOUND" ]; then return; fi
+	#not found
+	echo "Error: $PKG not installed or not registered with pkg-config" 1>&2
+	lowername=`echo $PKG | tr [A-Z] [a-z]`
+	echo "Please specify location using the --with-"$lowername" flag" 1>&2
+	exit 1
+}
+
+PREFIX=/usr/local
+
+VERSION_NUM=100000
+VERSION=`echo $VERSION_NUM | awk '{
+	major = int($1/100000);
+	minor = ($1/100)%1000;
+	patch = $1%100;
+	print major"."minor"."patch;
+}'`
+
+OS_NAME=`uname -s`
+
+GUESS_CC=gcc
+GUESS_CXX=g++
+GUESS_AR=ar
+GUESS_LD=ld
+if [ "$OS_NAME" = Linux ]; then
+	DYN_SUFFIX=.so
+	DYN_OPT='-shared -Wl,-soname,$(shell basename $(DYN_PRODUCT))'
+fi
+if [ "$OS_NAME" = Darwin ]; then
+	GUESS_CC=clang
+	GUESS_CXX=clang++
+	GUESS_LD=clang++
+	DYN_SUFFIX=.dylib
+	DYN_OPT='-dynamiclib -compatibility_version $(VERSION) -current_version $(VERSION)'
+fi
+
+CC=${CC-$GUESS_CC}
+CXX=${CXX-$GUESS_CXX}
+AR=${AR-$GUESS_AR}
+LD=${LD-$GUESS_LD}
+
+HELP="Usage: ./config.sh [OPTION]... 
+
+Installation directories:
+  --prefix=PREFIX         install files in PREFIX
+                          [$PREFIX]
+
+By default, \`make install' will install all the files in
+\`$PREFIX/bin', \`$PREFIX/lib' etc.  You can specify
+an installation prefix other than \`$PREFIX' using \`--prefix',
+for instance \`--prefix=\$HOME'.
+
+The following options can be used to maunally specify the 
+locations of dependencies:
+  --with-boost=DIR         use the copy of boost in DIR
+                           assuming headers are in DIR/include
+                           and libraries in DIR/lib
+  --with-boost-incdir=DIR  use the copy of boost in DIR
+  --with-boost-libdir=DIR  use the copy of boost in DIR
+  --with-hdf5=DIR          use the copy of HDF5 in DIR
+                           assuming headers are in DIR/include
+                           and libraries in DIR/lib
+  --with-hdf5-incdir=DIR   use the copy of HDF5 in DIR
+  --with-hdf5-libdir=DIR   use the copy of HDF5 in DIR
+
+Some influential environment variables:
+CC          C compiler command
+CXX         C++ compiler command
+AR          Static linker command
+LD          Dynamic linker command
+" #`
+
+for var in "$@"
+do
+	if [ "$var" = "--help" -o "$var" = "-h" ]; then
+		echo "$HELP"
+		exit 0
+	fi
+
+	TMP=`echo "$var" | sed -n 's/^--prefix=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then PREFIX="$TMP"; continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-boost=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then
+		BOOST_INCDIR="${TMP}/include";
+		BOOST_LIBDIR="${TMP}/lib";
+	continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-boost-incdir=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then BOOST_INCDIR="$TMP"; continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-boost-libdir=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then BOOST_LIBDIR="$TMP"; continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-hdf5=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then
+		HDF5_INCDIR="${TMP}/include";
+		HDF5_LIBDIR="${TMP}/lib";
+	continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-hdf5-incdir=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then HDF5_INCDIR="$TMP"; continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-hdf5-libdir=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then HDF5_LIBDIR="$TMP"; continue; fi
+
+done
+
+echo "Looking for boost..."
+find_boost
+
+if [ "$HDF5_INCDIR" -a "$HDF5_LIBDIR" ]; then
+	echo "Checking manually specified HDF5..."
+	if [ -d "$HDF5_INCDIR" \
+         -a -f "$HDF5_INCDIR/H5version.h" \
+         -a -d "$HDF5_LIBDIR" \
+         -a -f "$HDF5_LIBDIR/libhdf5.a" \
+         -a -f "$HDF5_LIBDIR/libhdf5_hl.a" ]; then
+		HDF5_FOUND=1
+		HDF5_CFLAGS="-I$HDF5_INCDIR"
+		HDF5_LDFLAGS="-L$HDF5_LIBDIR -lhdf5 -lhdf5_hl"
+	else
+		echo "Warning: manually specifed HDF5 not found; will attempt auto detection"
+	fi
+fi
+
+#find_package hdf5 1.8
+find_hdf5
+
+ensure_found boost
+ensure_found hdf5
+
+if [ ! -d ./build/ ]; then
+    mkdir build;
+fi
+
+echo "Generating config.mk..."
+echo "# Compiler
+CC=$CC
+CXX=$CXX
+AR=$AR
+LD=$LD
+
+DYN_SUFFIX=$DYN_SUFFIX
+DYN_OPT=$DYN_OPT
+
+PREFIX=$PREFIX
+
+# General Settings
+VERSION=${VERSION}
+CXXFLAGS= -std=c++11 -O2 -g -fPIC
+
+# Libraries
+CXXFLAGS+=${BOOST_CFLAGS} ${HDF5_CFLAGS}
+LDFLAGS+=-fPIC ${BOOST_LDFLAGS} ${HDF5_LDFLAGS}
+
+" > build/config.mk
+
+echo "Done."
+echo "To build the library, run make"

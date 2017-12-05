@@ -1,0 +1,449 @@
+// value.tcpp
+// Contain a value or the absence of a value.
+
+
+#ifndef VALUE_TCPP
+#define VALUE_TCPP
+
+#include <stdexcept>
+
+namespace phys_tools {
+
+template<typename value_type>
+    Value<value_type>::Value ()
+    :   _good (false)
+    {
+    }
+
+template<typename value_type>
+    Value<value_type>::Value (const value_type& val)
+    :   _val (val),
+    _good (true)
+    {
+    }
+
+// template<typename value_type>
+//     Value<value_type>::Value (const Value<value_type>& val)
+//     :   _val (val._val),
+//     _good (val._good)
+//     {
+//     }
+
+
+template<typename value_type> template <typename T>
+    Value<value_type>::Value (const Value<T>& val)
+    :   _val (val._val),
+    _good (val._good)
+    {
+    }
+
+
+// assignment -------------------------------------------------------
+
+template<typename value_type>
+    Value<value_type>&
+    Value<value_type>::operator= (const Value<value_type>& v)
+    {
+        _val = v._val;
+        _good = v._good;
+        return *this;
+    }
+
+template<typename value_type>
+    Value<value_type>&
+    Value<value_type>::operator+= (const Value<value_type>& v)
+    {
+        if (this->_good && v._good) {
+            _val += v.value ();
+        }
+        return *this;
+    }
+
+template<typename value_type>
+    Value<value_type>&
+    Value<value_type>::operator-= (const Value<value_type>& v)
+    {
+        if (this->_good && v._good) {
+            _val -= v.value ();
+        }
+        return *this;
+    }
+
+template<typename value_type>
+    Value<value_type>&
+    Value<value_type>::operator*= (const Value<value_type>& v)
+    {
+        if (this->_good && v._good) {
+            _val *= v.value ();
+        }
+        return *this;
+    }
+
+template<typename value_type>
+    Value<value_type>&
+    Value<value_type>::operator/= (const Value<value_type>& v)
+    {
+        if (this->_good && v._good) {
+            _val /= v.value ();
+        }
+        return *this;
+    }
+
+// other methods ----------------------------------------------------
+
+template<typename value_type>
+    void
+    Value<value_type>::clear ()
+    {
+        _good = false;
+    }
+
+template<typename value_type>
+    bool
+    Value<value_type>::empty () const
+    {
+        return !_good;
+    }
+
+template<typename value_type>
+    bool
+    Value<value_type>::good () const
+    {
+        return _good;
+    }
+
+template<typename value_type>
+    bool
+    Value<value_type>::is_nan () const
+    {
+        return _val != _val;
+    }
+
+template<typename value_type>
+    value_type*
+    Value<value_type>::pointer ()
+    {
+        if (_good) {
+            return &_val;
+        }
+        else {
+            return 0;
+        }
+    }
+
+template<typename value_type>
+    value_type
+    Value<value_type>::value () const
+    {
+        check ();
+        return _val;
+    }
+
+template<typename value_type>
+    Value<value_type>::operator value_type () const
+    {
+        return value ();
+    }
+
+template<typename value_type>
+    void
+    Value<value_type>::check () const
+    {
+        if (!_good) {
+            throw MissingValueError ();
+        }
+    }
+
+
+// arithmetic functions ---------------------------------------------
+
+template<typename T>
+    T
+    operator+ (const Value<T>& a, const Value<T>& b)
+    {
+        if (a._good && b._good) {
+            return a._val + b._val;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator+ (const T& a, const Value<T>& b)
+    {
+        if (b._good) {
+            return a + b._val;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator+ (const Value<T>& a, const T& b)
+    {
+        if (a._good) {
+            return a._val + b;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator- (const Value<T>& a, const Value<T>& b)
+    {
+        if (a._good && b._good) {
+            return a._val - b._val;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator- (const T& a, const Value<T>& b)
+    {
+        if (b._good) {
+            return a - b._val;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator- (const Value<T>& a, const T& b)
+    {
+        if (a._good) {
+            return a._val - b;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator* (const Value<T>& a, const Value<T>& b)
+    {
+        if (a._good && b._good) {
+            return a._val * b._val;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator* (const T& a, const Value<T>& b)
+    {
+        if (b._good) {
+            return a * b._val;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator* (const Value<T>& a, const T& b)
+    {
+        if (a._good) {
+            return a._val * b;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator/ (const Value<T>& a, const Value<T>& b)
+    {
+        if (a._good && b._good) {
+            return a._val / b._val;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator/ (const T& a, const Value<T>& b)
+    {
+        if (b._good) {
+            return a / b._val;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+template<typename T>
+    T
+    operator/ (const Value<T>& a, const T& b)
+    {
+        if (a._good) {
+            return a._val / b;
+        }
+        else {
+            return Value<T> ();
+        }
+    }
+
+
+// comparison functions ---------------------------------------------
+
+template<typename T>
+    bool
+    operator< (const Value<T>& a, const Value<T>& b)
+    {
+        return a.value () < b.value ();
+    }
+
+template<typename T>
+    bool
+    operator< (const T& a, const Value<T>& b)
+    {
+        return a < b.value ();
+    }
+
+template<typename T>
+    bool
+    operator< (const Value<T>& a, const T& b)
+    {
+        return a.value () < b;
+    }
+
+template<typename T>
+    bool
+    operator<= (const Value<T>& a, const Value<T>& b)
+    {
+        return a.value () <= b.value ();
+    }
+
+template<typename T>
+    bool
+    operator<= (const T& a, const Value<T>& b)
+    {
+        return a <= b.value ();
+    }
+
+template<typename T>
+    bool
+    operator<= (const Value<T>& a, const T& b)
+    {
+        return a.value () <= b;
+    }
+
+template<typename T>
+    bool
+    operator> (const Value<T>& a, const Value<T>& b)
+    {
+        return a.value () > b.value ();
+    }
+
+template<typename T>
+    bool
+    operator> (const T& a, const Value<T>& b)
+    {
+        return a > b.value ();
+    }
+
+template<typename T>
+    bool
+    operator> (const Value<T>& a, const T& b)
+    {
+        return a.value () > b;
+    }
+
+template<typename T>
+    bool
+    operator>= (const Value<T>& a, const Value<T>& b)
+    {
+        return a.value () >= b.value ();
+    }
+
+template<typename T>
+    bool
+    operator>= (const T& a, const Value<T>& b)
+    {
+        return a >= b.value ();
+    }
+
+template<typename T>
+    bool
+    operator>= (const Value<T>& a, const T& b)
+    {
+        return a.value () >= b;
+    }
+
+template<typename T>
+    bool
+    operator== (const Value<T>& a, const Value<T>& b)
+    {
+        return a.value () == b.value ();
+    }
+
+template<typename T>
+    bool
+    operator== (const T& a, const Value<T>& b)
+    {
+        return a == b.value ();
+    }
+
+template<typename T>
+    bool
+    operator== (const Value<T>& a, const T& b)
+    {
+        return a.value () == b;
+    }
+
+template<typename T>
+    bool
+    operator!= (const Value<T>& a, const Value<T>& b)
+    {
+        return !(a == b);
+    }
+
+template<typename T>
+    bool
+    operator!= (const T& a, const Value<T>& b)
+    {
+        return !(a == b);
+    }
+
+template<typename T>
+    bool
+    operator!= (const Value<T>& a, const T& b)
+    {
+        return !(a == b);
+    }
+
+
+template<typename T> std::ostream&
+    operator<< (std::ostream& os, const Value<T>& v)
+    {
+        if (v.good ()) {
+            os << v._val;
+        }
+        else {
+            os << "____";
+        }
+        return os;
+    }
+
+} // namespace phys_tools
+
+
+#endif  /* VALUE_TCPP */

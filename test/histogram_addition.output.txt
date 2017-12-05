@@ -1,0 +1,91 @@
+Both empty:
+
+First empty:
+1 2
+2 0
+3 0
+4 2
+
+
+Second empty:
+1 1
+2 2
+3 3
+
+
+Both nonempty (larger extent: neither, neither):
+1 3
+2 2
+3 5
+
+
+Both nonempty (larger extent: neither, 1):
+1 3
+2 2
+3 3
+4 2
+
+
+Both nonempty (larger extent: neither, 2):
+1 3
+2 2
+3 3
+4 2
+
+
+Both nonempty (larger extent: 1, neither):
+0 2
+1 1
+2 2
+3 5
+
+
+Both nonempty (larger extent: 1, 1):
+0 2
+1 1
+2 2
+3 2
+
+
+Both nonempty (larger extent: 1, 2):
+0 2
+1 1
+2 2
+3 2
+
+
+Both nonempty (larger extent: 2, neither):
+0 2
+1 1
+2 2
+3 5
+
+
+Both nonempty (larger extent: 2, 1):
+0 2
+1 1
+2 4
+3 3
+
+
+Both nonempty (larger extent: 2, 2):
+0 2
+1 1
+2 2
+3 2
+
+
+Both nonempty (larger extent: 1, 2; no overlap):
+1 1
+2 2
+3 2
+4 2
+
+
+Both nonempty (larger extent: 2, 1; no overlap):
+1 1
+2 2
+3 2
+4 2
+
+

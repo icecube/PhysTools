@@ -1,0 +1,1 @@
+all arguments to histogram(Axes... axes) must be axis objects

@@ -1,0 +1,562 @@
+// gnuplot.tcpp
+// Access Gnuplot directly and easily from C++ code
+
+
+#ifndef GNUPLOT_TCPP
+#define GNUPLOT_TCPP 1
+
+
+#include <sstream>
+
+#include <boost/tuple/tuple_io.hpp>
+
+
+namespace phys_tools {
+namespace gnuplot {
+
+
+inline bool
+    just_true ()
+    {
+        return true;
+    }
+
+
+// DataPlot template implementation ---------------------------------
+
+//template <typename ForwardIterator> DataPlot<ForwardIterator>
+//    ::DataPlot (const ForwardIterator& first,
+//                const ForwardIterator& last,
+//                const std::string& title,
+//                const Format& format)
+//    :   Plottable (title, format), first_ (first), last_ (last)
+//    {
+//    }
+//
+//template <typename ForwardIterator> DataPlot<ForwardIterator>
+//    ::~DataPlot ()
+//    {
+//    }
+//
+//template <typename ForwardIterator>
+//    std::string
+//    DataPlot<ForwardIterator>::get_plot_code () const
+//    {
+//        std::ostringstream plot_code;
+//        plot_code << "'-' title \"" << title_ << "\" ";
+//        plot_code << format_;
+//        return plot_code.str ();
+//    }
+//
+//template <typename ForwardIterator>
+//    std::string
+//    DataPlot<ForwardIterator>::get_data_code () const
+//    {
+//        typedef typename std::iterator_traits<ForwardIterator>::pointer
+//            point_type_pointer;
+//        return do_get_data_code (point_type_pointer ());
+//    }
+//
+//template <typename ForwardIterator>
+//    std::string
+//    DataPlot<ForwardIterator>
+//    ::get_data_code (const double& x_min, const double& x_max,
+//                     const double& y_min, const double& y_max) const
+//    {
+//        return get_data_code ();
+//    }
+//
+//
+//template <typename ForwardIterator> template <typename T1, typename T2>
+//    std::string
+//    DataPlot<ForwardIterator>
+//    ::do_get_data_code (const std::pair<T1, T2>* /* unused */) const
+//    {
+//        std::ostringstream data_code;
+//        for (ForwardIterator i = first_; i != last_; i++) {
+//            data_code << i->first << '\t' << i->second << std::endl;
+//        }
+//        data_code << "e" << std::endl;
+//        return data_code.str ();
+//    }
+//
+//
+//template <typename ForwardIterator> template <typename T, int count>
+//    std::string
+//    DataPlot<ForwardIterator>
+//    ::do_get_data_code (const T(*const)[count] /* unused */) const
+//    {
+//        std::ostringstream data_code;
+//        for (ForwardIterator i = first_; i != last_; ++i) {
+//            data_code << (*i)[0] << '\t' << (*i)[1] << std::endl;
+//        }
+//        data_code << "e" << std::endl;
+//        return data_code.str ();
+//    }
+//
+//template <typename ForwardIterator> template <typename PointT>
+//    std::string
+//    DataPlot<ForwardIterator>
+//    ::do_get_data_code (const PointT* /* unused */) const
+//    {
+//        std::ostringstream data_code;
+//        for (ForwardIterator i = first_; i != last_; ++i) {
+//            data_code << i->x () << '\t' << i->y () << std::endl;
+//        }
+//        data_code << "e" << std::endl;
+//        return data_code.str ();
+//    }
+
+
+// DataPlot3D template implementation -------------------------------
+
+template <typename ForwardIterator> DataPlot3D<ForwardIterator>
+    ::DataPlot3D (const ForwardIterator& first,
+                  const ForwardIterator& last,
+                  const std::string& title,
+                  const Format& format)
+    :   Plottable3D (title, format), first_ (first), last_ (last)
+    {
+    }
+
+template <typename ForwardIterator> DataPlot3D<ForwardIterator>
+    ::~DataPlot3D ()
+    {
+    }
+
+template <typename ForwardIterator>
+    std::string
+    DataPlot3D<ForwardIterator>::get_plot_code () const
+    {
+        std::ostringstream plot_code;
+        plot_code << "'-' title \"" << title_ << "\" ";
+        plot_code << format_;
+        return plot_code.str ();
+    }
+
+template <typename ForwardIterator>
+    std::string
+    DataPlot3D<ForwardIterator>::get_data_code () const
+    {
+        std::ostringstream data_code;
+        for (ForwardIterator i = first_; i != last_; i++) {
+            boost::tuple<double, double, double> p = extract_point (*i);
+            data_code
+                << boost::tuples::set_open (' ')
+                << boost::tuples::set_close (' ')
+                << boost::tuples::set_delimiter ('\t')
+                << p << std::endl;
+        }
+        data_code << 'e' << std::endl;
+        return data_code.str ();
+    }
+
+template <typename ForwardIterator>
+    template <typename T1, typename T2, typename T3>
+    boost::tuple<double, double, double>
+    DataPlot3D<ForwardIterator>
+    ::extract_point (const boost::tuple<T1, T2, T3>& p) const
+    {
+        return p;
+    }
+
+template <typename ForwardIterator> template <typename T, int count>
+    boost::tuple<double, double, double>
+    DataPlot3D<ForwardIterator>
+    ::extract_point (const T p[count]) const
+    {
+        return boost::make_tuple (p[0], p[1], p[2]);
+    }
+
+template <typename ForwardIterator> template <typename PointT>
+    boost::tuple<double, double, double>
+    DataPlot3D<ForwardIterator>
+    ::extract_point (const PointT& p) const
+    {
+        return boost::make_tuple (p.x (), p.y (), p.z ());
+    }
+
+// MeshDataPlot3D template implementation ---------------------------
+
+template <typename ForwardIterator> MeshDataPlot3D<ForwardIterator>
+    ::MeshDataPlot3D (const ForwardIterator& first,
+                      const ForwardIterator& last,
+                      const int n_x,
+                      const int n_y,
+                      const std::string& title,
+                      const Format& format)
+    : DataPlot3D<ForwardIterator> (first, last, title, format),
+    n_x_ (n_x), n_y_ (n_y)
+    {
+    }
+
+template <typename ForwardIterator> MeshDataPlot3D<ForwardIterator>
+    ::~MeshDataPlot3D ()
+    {
+    }
+
+
+template <typename ForwardIterator>
+    std::string
+    MeshDataPlot3D<ForwardIterator>::get_data_code () const
+    {
+        std::ostringstream data_code;
+        const ForwardIterator& first_ = DataPlot3D<ForwardIterator>::first_;
+        const ForwardIterator& last_ = DataPlot3D<ForwardIterator>::last_;
+        for (ForwardIterator i = first_; i != last_; advance (i, n_y_)) {
+            ForwardIterator next_i = i;
+            advance (next_i, n_y_);
+            if (next_i == last_) {
+                break;
+            }
+            boost::tuple<double, double, double> p_i_0 = extract_point (*i);
+            double x_0 = p_i_0.get<0> ();
+            boost::tuple<double, double, double> p_i_1 = extract_point (*next_i);
+            double x_1 = p_i_1.get<0> ();
+            for (ForwardIterator j = i; j != next_i; ++j) {
+                ForwardIterator next_j = j;
+                ++next_j;
+                if (next_j == next_i) {
+                    break;
+                }
+                boost::tuple<double, double, double> p_j_0 = extract_point (*j);
+                double y_0 = p_j_0.get<1> ();
+                boost::tuple<double, double, double> p_j_1 = extract_point (*next_j);
+                double y_1 = p_j_1.get<1> ();
+                double v = p_j_0.get<2> ();
+                data_code
+                    << x_0 << '\t'
+                    << y_0 << '\t'
+                    << v << std::endl;
+                data_code
+                    << x_0 << '\t'
+                    << y_1 << '\t'
+                    << v << std::endl;
+            }
+            data_code << std::endl;
+            for (ForwardIterator j = i; j != next_i; ++j) {
+                ForwardIterator next_j = j;
+                ++next_j;
+                if (next_j == next_i) {
+                    break;
+                }
+                boost::tuple<double, double, double> p_j_0 = extract_point (*j);
+                double y_0 = p_j_0.get<1> ();
+                boost::tuple<double, double, double> p_j_1 = extract_point (*next_j);
+                double y_1 = p_j_1.get<1> ();
+                double v = p_j_0.get<2> ();
+                data_code
+                    << x_1 << '\t'
+                    << y_0 << '\t'
+                    << v << std::endl;
+                data_code
+                    << x_1 << '\t'
+                    << y_1 << '\t'
+                    << v << std::endl;
+            }
+            data_code << std::endl;
+        }
+        data_code << 'e' << std::endl;
+        return data_code.str ();
+    }
+
+
+// Gnuplot template implementation ----------------------------------
+
+/*template <typename ForwardIterator>
+    void
+    Gnuplot::normalize (const ForwardIterator& first,
+                        const ForwardIterator& last)
+    {
+        std::ostringstream   gp_code_plot_line;
+        bool wrote_first = false;
+        gp_code_plot_line << "plot ";
+        for (ForwardIterator i = first; i != last; ++i) {
+            if (wrote_first) {
+                gp_code_plot_line << ", ";
+            }
+            gp_code_plot_line << (*i)->get_plot_code ();
+            wrote_first = true;
+        }
+        gp_code_plot_line << std::endl;
+        std::ostringstream   gp_code_pre_norm;
+        gp_code_pre_norm << "reset" << std::endl
+            << get_settings_code () << gp_code_plot_line.str ();
+        for (ForwardIterator i = first; i != last; ++i) {
+            gp_code_pre_norm << (*i)->get_data_code ();
+        }
+        // deal with normalization
+        NormalizeResult norm = normalize_once (gp_code_pre_norm.str ());
+        x_axis_.min (norm.x_min).max (norm.x_max);
+        y_axis_.min (norm.y_min).max (norm.y_max);
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_agnostic (const std::string& terminal_code,
+                            const ForwardIterator& first,
+                            const ForwardIterator& last) const
+    {
+        std::ostringstream   gp_code_plot_line;
+        bool wrote_first = false;
+        gp_code_plot_line << "plot ";
+        for (ForwardIterator i = first; i != last; ++i) {
+            if (wrote_first) {
+                gp_code_plot_line << ", ";
+            }
+            gp_code_plot_line << (*i)->get_plot_code ();
+            wrote_first = true;
+        }
+        gp_code_plot_line << std::endl;
+        std::ostringstream   gp_code_pre_norm;
+        gp_code_pre_norm << "reset" << std::endl
+            << get_settings_code () << gp_code_plot_line.str ();
+        for (ForwardIterator i = first; i != last; ++i) {
+            gp_code_pre_norm << (*i)->get_data_code ();
+        }
+        // deal with normalization
+        NormalizeResult norm = normalize_once (gp_code_pre_norm.str ());
+        // do real plotting
+        std::ostringstream   gp_code_post_norm;
+        gp_code_post_norm << "reset" << std::endl
+            << get_settings_code () << norm << gp_code_plot_line.str ();
+        for (ForwardIterator i = first; i != last; ++i) {
+            gp_code_post_norm << (*i)->get_data_code (norm.x_min, norm.x_max,
+                                                      norm.y_min, norm.y_max);
+        }
+        commands << terminal_code;
+        commands << gp_code_post_norm.str ();
+        //         std::cout << "--- used gnuplot code as follows:" << std::endl;
+        //         std::cout << terminal_code << gp_code_post_norm.str ();
+        //         std::cout << "--- end of gnuplot code" << std::endl;
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_epslatex (const ForwardIterator& first,
+                            const ForwardIterator& last,
+                            const boost::filesystem::path filename,
+                            const bool standalone,
+                            const double x_size,
+                            const double y_size,
+                            const bool enable_color,
+                            const bool solid_lines) const
+    {
+        std::ostringstream    terminal_code;
+        terminal_code << "set term epslatex ";
+        if (standalone) {
+            terminal_code << "standalone ";
+        }
+        if (enable_color) {
+            terminal_code << "color ";
+        }
+        if (solid_lines) {
+            terminal_code << "solid ";
+        }
+        terminal_code << "size " << x_size << ',' << y_size << ' ';
+        terminal_code << std::endl;
+        terminal_code << "set output \"" << filename.string() << '"';
+        terminal_code << std::endl;
+        plot_agnostic (terminal_code.str (), first, last);
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_eps (const ForwardIterator& first,
+                       const ForwardIterator& last,
+                       const boost::filesystem::path filename,
+                       const std::string fontname,
+                       const unsigned fontsize,
+                       const double x_size,
+                       const double y_size,
+                       const bool enable_color,
+                       const bool solid_lines) const
+    {
+        std::ostringstream    terminal_code;
+        terminal_code << "set term postscript eps enhanced ";
+        if (enable_color) {
+            terminal_code << "color ";
+        }
+        if (solid_lines) {
+            terminal_code << "solid ";
+        }
+		terminal_code << "lw 2 "; //TODO: make this a setting!
+        terminal_code << "size " << x_size << ',' << y_size << ' ';
+        terminal_code << '"' << fontname << "\" " << fontsize << ' ';
+        terminal_code << std::endl;
+        terminal_code << "set output \"" << filename.string() << '"';
+        terminal_code << std::endl;
+        plot_agnostic (terminal_code.str (), first, last);
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_png (const ForwardIterator& first,
+                       const ForwardIterator& last,
+                       const boost::filesystem::path filename,
+                       const std::string fontname,
+                       const unsigned fontsize,
+                       const int width,
+                       const int height) const
+    {
+        std::ostringstream    terminal_code;
+        terminal_code << "set term png ";
+        std::string basic_fonts[] = {"tiny", "small", "medium", "large", "giant"};
+        if (find (basic_fonts, basic_fonts + 5, fontname) != basic_fonts + 5) {
+            terminal_code << fontname << ' ';
+        }
+        else {
+            terminal_code << "font \"" << fontname << "\" " << fontsize << " ";
+        }
+        terminal_code << "size " << width << ',' << height;
+        terminal_code << std::endl;
+        terminal_code << "set output \"" << filename.string() << '"';
+        terminal_code << std::endl;
+        plot_agnostic (terminal_code.str (), first, last);
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_wxt (const ForwardIterator& first,
+                       const ForwardIterator& last) const
+    {
+        std::ostringstream    terminal_code;
+        terminal_code << "set term wxt persist" << std::endl;
+        plot_agnostic (terminal_code.str (), first, last);
+    }
+
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_agnostic_3d (const std::string& terminal_code,
+                               const ForwardIterator& first,
+                               const ForwardIterator& last,
+                               const bool use_contours) const
+    {
+        std::ostringstream   gp_code_plot_line;
+        bool wrote_first = false;
+        if (use_contours) {
+            gp_code_plot_line << "set pm3d map" << std::endl;
+        }
+        gp_code_plot_line << "splot ";
+        for (ForwardIterator i = first; i != last; ++i) {
+            if (wrote_first) {
+                gp_code_plot_line << ", ";
+            }
+            gp_code_plot_line << (*i)->get_plot_code ();
+            wrote_first = true;
+        }
+        gp_code_plot_line << std::endl;
+        std::ostringstream gp_code;
+        gp_code << "reset" << std::endl
+            << get_settings_code () << gp_code_plot_line.str ();
+        for (ForwardIterator i = first; i != last; ++i) {
+            gp_code << (*i)->get_data_code ();
+        }
+        commands << terminal_code;
+        commands << gp_code.str ();
+        //         std::cerr << "--- used gnuplot code as follows:" << std::endl;
+        //         std::cerr << terminal_code << gp_code.str ();
+        //         std::cerr << "--- end of gnuplot code" << std::endl;
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_epslatex_3d (const ForwardIterator& first,
+                               const ForwardIterator& last,
+                               const boost::filesystem::path filename,
+                               const bool standalone,
+                               const double x_size,
+                               const double y_size,
+                               const bool enable_color,
+                               const bool solid_lines) const
+    {
+        std::ostringstream    terminal_code;
+        terminal_code << "set term epslatex ";
+        if (standalone) {
+            terminal_code << "standalone ";
+        }
+        if (enable_color) {
+            terminal_code << "color ";
+        }
+        if (solid_lines) {
+            terminal_code << "solid ";
+        }
+        terminal_code << "size " << x_size << ',' << y_size << ' ';
+        terminal_code << std::endl;
+        terminal_code << "set output \"" << filename.string() << '"';
+        terminal_code << std::endl;
+        plot_agnostic_3d (terminal_code.str (), first, last);
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_eps_3d (const ForwardIterator& first,
+                          const ForwardIterator& last,
+                          const boost::filesystem::path filename,
+						  bool useContours,
+                          const std::string fontname,
+                          const unsigned fontsize,
+                          const double x_size,
+                          const double y_size,
+                          const bool enable_color,
+                          const bool solid_lines) const
+    {
+        std::ostringstream    terminal_code;
+        terminal_code << "set term postscript eps enhanced ";
+        if (enable_color) {
+            terminal_code << "color ";
+        }
+        if (solid_lines) {
+            terminal_code << "solid ";
+        }
+        terminal_code << "size " << x_size << ',' << y_size << ' ';
+        terminal_code << '"' << fontname << "\" " << fontsize << ' ';
+        terminal_code << std::endl;
+        terminal_code << "set output \"" << filename.string() << '"';
+        terminal_code << std::endl;
+        plot_agnostic_3d (terminal_code.str (), first, last, useContours);
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_png_3d (const ForwardIterator& first,
+                          const ForwardIterator& last,
+                          const boost::filesystem::path filename,
+                          const std::string fontname,
+                          const unsigned fontsize,
+                          const int width,
+                          const int height) const
+    {
+        std::ostringstream    terminal_code;
+        terminal_code << "set term png ";
+        std::string basic_fonts[] = {"tiny", "small", "medium", "large", "giant"};
+        if (find (basic_fonts, basic_fonts + 5, fontname) != basic_fonts + 5) {
+            terminal_code << fontname << ' ';
+        }
+        else {
+            terminal_code << "font \"" << fontname << "\" " << fontsize << " ";
+        }
+        terminal_code << "size " << width << ',' << height;
+        terminal_code << std::endl;
+        terminal_code << "set output \"" << filename.string() << '"';
+        terminal_code << std::endl;
+        plot_agnostic_3d (terminal_code.str (), first, last);
+    }
+
+template <typename ForwardIterator>
+    void
+    Gnuplot::plot_wxt_3d (const ForwardIterator& first,
+                          const ForwardIterator& last) const
+    {
+        std::ostringstream    terminal_code;
+        terminal_code << "set term wxt persist" << std::endl;
+        plot_agnostic_3d (terminal_code.str (), first, last);
+    }
+*/
+
+
+} // namespace gnuplot
+} // namespace phys_tools
+
+#endif  /* GNUPLOT_TCPP */

@@ -1,0 +1,8 @@
+R1:
+x within tolerance of truth
+y within tolerance of truth
+f within tolerance of truth
+R2:
+x within tolerance of truth
+y within tolerance of truth
+f within tolerance of truth

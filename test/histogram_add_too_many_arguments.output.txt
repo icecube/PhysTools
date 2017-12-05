@@ -1,0 +1,1 @@
+incorrect type of arguments to histogram<>::add(); when using N+1 arguments the last must be an amount

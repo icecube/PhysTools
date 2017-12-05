@@ -1,0 +1,1 @@
+Number of axes used to construct a histogram must be equal to its number of dimensions

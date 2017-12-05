@@ -1,0 +1,13 @@
+quadratic:
+ x within tolerance of truth
+ f within tolerance of truth
+ f' is within tolerance
+sine:
+ x within tolerance of truth
+ f within tolerance of truth
+ f' is within tolerance
+abs:
+ x within tolerance of truth
+ f within tolerance of truth
+mess:
+ f' is within tolerance

@@ -1,0 +1,1 @@
+Projecting out a dimension is only defined for histograms with more than one dimension
