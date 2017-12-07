@@ -1,1 +1,0 @@
-cweaver = cweaver <cweaver.icecube.wisc.edu>

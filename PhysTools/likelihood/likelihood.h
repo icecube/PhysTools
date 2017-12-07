@@ -17,6 +17,7 @@
 #include "../lbfgsb/lbfgsb.h"
 
 #include "../histogram.h"
+#include "../brent.h"
 
 #include "../autodiff.h"
 #include "../ThreadPool.h"
@@ -224,10 +225,63 @@ namespace likelihood{
 		}
 	};
 
+    template<typename T>
+    struct barlowParams {
+        const std::vector<T> & wi;
+        const std::vector<unsigned int> & ai;
+        double dataCount;
+        barlowParams(const std::vector<T>&wi, const std::vector<unsigned int>&ai, double dataCount): wi(wi), ai(ai), dataCount(dataCount) {};
+    };
+
+    template<typename T>
+    T barlowHelper(double ti, void *params) {
+        barlowParams<T> * p = (barlowParams<T> *)params;
+        T result = p->dataCount / (1. - ti);
+        std::vector<T> results(p->ai.size(), 0);
+        for(unsigned int j=0; j<p->ai.size(); ++j) {
+            results[j] = (p->wi[j]*p->ai[j]) / (1+p->wi[j]*ti);
+        }
+        return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
+    };
+
     struct barlowLikelihood {
         template<typename T>
         T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
-            std::vector<T> ai(simulationWeights.size(), 0);
+            auto it = simulationWeights.begin();
+            auto end = simulationWeights.begin();
+            std::vector<T> wi(categories.size());
+            const std::vector<unsigned int> &ai = categories;
+            for(unsigned int j=0; j<categories.size(); ++j) {
+                end += categories[j];
+                wi[j] = std::accumulate(it, end, T(0), std::plus<T>()) / ai[j];
+                it = end;
+            }
+
+            T ti(1);
+
+            if(dataCount > 0) {
+                std::function<T(T)> func = [&](T ti)->T{
+                    T result = dataCount / (1. - ti);
+                    std::vector<T> results(ai.size(), 0);
+                    for(unsigned int j=0; j<ai.size(); ++j) {
+                        results[j] = (wi[j]*ai[j]) / (1+wi[j]*ti);
+                    }
+                    return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
+                };
+
+                T lower_bound = -T(1.0) / *std::max_element(wi.begin(), wi.end());
+                T upper_bound(1.0);
+                T tol(1e-10);
+
+                ti = brent::zero(lower_bound, upper_bound, tol, func);
+            }
+
+            std::vector<T> Ai(ai.size());
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                Ai[j] = ai[j] / (1+wi[j]*ti);
+            }
+
+            return 0;
 
         }
     };
@@ -502,6 +556,17 @@ namespace likelihood{
 				}
 
                 std::vector<unsigned int> categories;
+
+                unsigned int category = categoryWeights[0];
+                unsigned int count = 1;
+
+                for(auto it=categories.begin()+1; it!=categories.end(); ++it) {
+                    if(*it != category) {
+                        category = *it;
+                        categories.push_back(count);
+                        count = 0;
+                    }
+                }
 				
 				auto contribution=likelihoodFunction(observationAmount,expectationWeights,categories);
 				/*{
@@ -536,6 +601,17 @@ namespace likelihood{
 					
                     std::vector<unsigned int> categories;
 
+                    unsigned int category = categoryWeights[0];
+                    unsigned int count = 1;
+
+                    for(auto it=categories.begin()+1; it!=categories.end(); ++it) {
+                        if(*it != category) {
+                            category = *it;
+                            categories.push_back(count);
+                            count = 0;
+                        }
+                    }
+	
 					auto contribution=likelihoodFunction(0,expectationWeights,categories);
 					/*{
 						std::lock_guard<std::mutex> lck(printMtx);
