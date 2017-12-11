@@ -45,7 +45,7 @@ namespace likelihood{
 	
 	struct poissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights, std::vector<unsigned int>& categories) const{
 			T lambda=std::accumulate(simulationWeights.begin(),simulationWeights.end(),T(0),std::plus<T>());
 			if(lambda==0)
 				return(0);
@@ -59,7 +59,7 @@ namespace likelihood{
 	
 	struct dimaLikelihood{
 		template<typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights, std::vector<unsigned int>& categories) const{
 			//std::cout << "   " << dataCount << " observed events compared to " << simulationWeights.size() << " simulated events" << '\n';
 			using std::abs; //we want access to std::abs for things like doubles so that we can also find things under the same name via ADL
 			
@@ -171,7 +171,7 @@ namespace likelihood{
 	
 	struct chi2Likelihood{
 		template<typename T>
-		T operator()(unsigned int dataCount, const std::vector<T>& expectationWeights) const{
+		T operator()(unsigned int dataCount, const std::vector<T>& expectationWeights, std::vector<unsigned int>& categories) const{
 			T exp=std::accumulate(expectationWeights.begin(),expectationWeights.end(),T(0),std::plus<T>());
 			if(exp>0){
 				T diff=dataCount-exp;
@@ -183,7 +183,7 @@ namespace likelihood{
 	
 	struct saturatedPoissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights, std::vector<unsigned int>& categories) const{
 			if(dataCount==0)
 				return(0);
 			T sum(dataCount);
@@ -198,7 +198,7 @@ namespace likelihood{
 	///http://dx.doi.org/10.1016/j.nima.2012.06.021
 	struct bohmZechLikelihood{
 		template<typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights, std::vector<unsigned int>& categories) const{
 			//having an observation where there is no simulation is a problem, but
 			//we can't really solve it in his context, so we return 0 to leave
 			//the likelihood unaffected
@@ -225,25 +225,6 @@ namespace likelihood{
 		}
 	};
 
-    template<typename T>
-    struct barlowParams {
-        const std::vector<T> & wi;
-        const std::vector<unsigned int> & ai;
-        double dataCount;
-        barlowParams(const std::vector<T>&wi, const std::vector<unsigned int>&ai, double dataCount): wi(wi), ai(ai), dataCount(dataCount) {};
-    };
-
-    template<typename T>
-    T barlowHelper(double ti, void *params) {
-        barlowParams<T> * p = (barlowParams<T> *)params;
-        T result = p->dataCount / (1. - ti);
-        std::vector<T> results(p->ai.size(), 0);
-        for(unsigned int j=0; j<p->ai.size(); ++j) {
-            results[j] = (p->wi[j]*p->ai[j]) / (1+p->wi[j]*ti);
-        }
-        return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
-    };
-
     struct barlowLikelihood {
         template<typename T>
         T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
@@ -258,6 +239,7 @@ namespace likelihood{
             }
 
             T ti(1);
+            std::vector<T> Ai(ai.size());
 
             if(dataCount > 0) {
                 std::function<T(T)> func = [&](T ti)->T{
@@ -269,19 +251,58 @@ namespace likelihood{
                     return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
                 };
 
-                T lower_bound = -T(1.0) / *std::max_element(wi.begin(), wi.end());
+                auto max_wi_it = std::max_element(wi.begin(), wi.end());
+                unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
+                T lower_bound = -T(1.0) / T(*max_wi_it);
                 T upper_bound(1.0);
                 T tol(1e-10);
 
                 ti = brent::zero(lower_bound, upper_bound, tol, func);
+
+                // Special case: MC source with the largest strength has zero MC events
+                if(ai[max_wi_i] == 0) {
+                    T Aki = T(dataCount) / (T(1.0) + T(*max_wi_it));
+                    for(unsigned int j=0; j<categories.size(); ++j) {
+                        if(j == max_wi_i) {
+                            continue;
+                        }
+                        if(*max_wi_it == wi[j]) {
+                            Aki = T(0);
+                            break;
+                        }
+                        Aki -= wi[j]*ai[j]/(*max_wi_it - wi[j]);
+                    }
+                    if(Aki != T(0)) {
+                        ti = lower_bound;
+                        for(unsigned int j=0; j<ai.size(); ++j) {
+                            Ai[j] = ai[j] / (1+wi[j]*ti);
+                        }
+                        Ai[max_wi_i] = Aki;
+                    }
+                }
+                else {
+                    for(unsigned int j=0; j<ai.size(); ++j) {
+                        Ai[j] = ai[j] / (1+wi[j]*ti);
+                    }
+                }
+            }
+            else {
+                for(unsigned int j=0; j<ai.size(); ++j) {
+                    Ai[j] = ai[j] / (1+wi[j]*ti);
+                }
+
             }
 
-            std::vector<T> Ai(ai.size());
+            T f(0);
+            T sum(0);
             for(unsigned int j=0; j<ai.size(); ++j) {
-                Ai[j] = ai[j] / (1+wi[j]*ti);
+                f += wi[j]*Ai[j];
+                sum += ai[j]*log(Ai[j]) - Ai[j];
             }
+            sum += T(dataCount)*log(f) - f;
 
-            return 0;
+
+            return sum;
 
         }
     };
@@ -560,7 +581,7 @@ namespace likelihood{
                 unsigned int category = categoryWeights[0];
                 unsigned int count = 1;
 
-                for(auto it=categories.begin()+1; it!=categories.end(); ++it) {
+                for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
                     if(*it != category) {
                         category = *it;
                         categories.push_back(count);
@@ -604,7 +625,7 @@ namespace likelihood{
                     unsigned int category = categoryWeights[0];
                     unsigned int count = 1;
 
-                    for(auto it=categories.begin()+1; it!=categories.end(); ++it) {
+                    for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
                         if(*it != category) {
                             category = *it;
                             categories.push_back(count);
