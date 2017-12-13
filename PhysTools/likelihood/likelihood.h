@@ -254,7 +254,6 @@ namespace likelihood{
             std::vector<T> Ai(ai.size());
             T ti(1);
             if(di > 0) {
-                //std::cout << "have data" << std::endl;
                 std::function<T(T)> func = [&](T ti)->T{
                     T result = T(di) / (T(1) - ti);
                     std::vector<T> results(ai.size(), T(0));
@@ -271,13 +270,10 @@ namespace likelihood{
                 T tol(1e-10);
             
                 
-                //ti = brent::zero(lower_bound, upper_bound, tol, func);
                 ti = compute_barlow_ti(di, ai, wi);
-                //std::cout << "ti: " << lower_bound << " <= " << ti << std::endl;
 
                 // Special case: MC source with the largest strength has zero MC events
                 if(ai[max_wi_i] == 0) {
-                    //std::cout << "special case\n";
                     T Aki = T(di) / (T(1.0) + T(*max_wi_it));
                     for(unsigned int j=0; j<ai.size(); ++j) {
                         if(j == max_wi_i) {
@@ -317,23 +313,6 @@ namespace likelihood{
             T f(0);
             T sum(0);
             
-            /*std::cout << "ti = " << ti << std::endl;
-            std::cout << "wi[j](" << wi.size() << ") = [";
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                std::cout << wi[j] << ", ";
-            }
-            std::cout << "]" << std::endl;
-            std::cout << "ai[j](" << ai.size() << ") = [";
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                std::cout << ai[j] << ", ";
-            }
-            std::cout << "]" << std::endl;
-            std::cout << "Ai[j](" << Ai.size() << ") = [";
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                std::cout << Ai[j] << ", ";
-            }
-            std::cout << "]" << std::endl;
-            */
             for(unsigned int j=0; j<ai.size(); ++j) {
                 if(Ai[j] < T(0))
                     Ai[j] = T(0);
@@ -341,7 +320,6 @@ namespace likelihood{
                 sum += ai[j]*log(Ai[j]) - Ai[j] - lgamma(ai[j]+T(1));
             }
             sum += T(di)*log(f) - f - lgamma(T(di)+T(1));
-            //std::cout << "sum = " << sum << std::endl;
 
             return sum;
         }
@@ -378,7 +356,6 @@ namespace likelihood{
                 
             // Special case: MC source with the largest strength has zero MC events
             if(ai[max_wi_i] == 0) {
-                //std::cout << "special case\n";
                 T Aki = T(di) / (T(1.0) + T(*max_wi_it));
                 for(unsigned int j=0; j<ai.size(); ++j) {
                     if(j == max_wi_i) {
@@ -483,25 +460,6 @@ namespace likelihood{
                 }
                 dLi.setDerivative(i, dL);
             }
-            std::cout << "dti = " << dti << std::endl;
-            std::cout << "dfi = " << dti << std::endl;
-            std::cout << "dwi[j](" << dwi.size() << ") = [";
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                std::cout << dwi[j] << ", ";
-            }
-            std::cout << "]" << std::endl;
-            std::cout << "ai[j](" << ai.size() << ") = [";
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                std::cout << ai[j] << ", ";
-            }
-            std::cout << "]" << std::endl;
-            std::cout << "dAi[j](" << ai.size() << ") = [";
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                std::cout << dAi[j] << ", ";
-            }
-            std::cout << "]" << std::endl;
-            std::cout << "dLi = " << dLi << std::endl;
-            
             return dLi;
         }
     };
@@ -793,22 +751,23 @@ namespace likelihood{
 				}
 
                 std::vector<unsigned int> categories;
+                if(categoryWeights.size()>0) {
+                    unsigned int category = categoryWeights[0];
+                    std::cout << "categories = [" << category;
+                    unsigned int count = 1;
 
-                unsigned int category = categoryWeights[0];
-                std::cout << "categories = [" << category;
-                unsigned int count = 1;
-
-                for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
-                    if(*it != category) {
-                        category = *it;
-                        std::cout << ", " << category;
-                        categories.push_back(count);
-                        count = 0;
+                    for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
+                        if(*it != category) {
+                            category = *it;
+                            std::cout << ", " << category;
+                            categories.push_back(count);
+                            count = 0;
+                        }
+                        ++count;
                     }
-                    ++count;
+                    categories.push_back(count);
+                    std::cout << "]" << std::endl;
                 }
-                categories.push_back(count);
-                std::cout << "]" << std::endl;
 				
 				auto contribution=likelihoodFunction(observationAmount,expectationWeights,categories);
 				/*{
@@ -842,22 +801,23 @@ namespace likelihood{
                     }
 					
                     std::vector<unsigned int> categories;
+                    if(categoryWeights.size()>0) {
+                        unsigned int category = categoryWeights[0];
+                        std::cout << "categories = [" << category;
+                        unsigned int count = 1;
 
-                    unsigned int category = categoryWeights[0];
-                    std::cout << "categories = [" << category;
-                    unsigned int count = 1;
-
-                    for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
-                        if(*it != category) {
-                            category = *it;
-                            std::cout << " " << category;
-                            categories.push_back(count);
-                            count = 0;
+                        for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
+                            if(*it != category) {
+                                category = *it;
+                                std::cout << ", " << category;
+                                categories.push_back(count);
+                                count = 0;
+                            }
+                            ++count;
                         }
-                        ++count;
+                        categories.push_back(count);
+                        std::cout << "]" << std::endl;
                     }
-                    categories.push_back(count);
-                    std::cout << "]" << std::endl;
 	
 					auto contribution=likelihoodFunction(0,expectationWeights,categories);
 					/*{
