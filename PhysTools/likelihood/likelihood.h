@@ -225,6 +225,287 @@ namespace likelihood{
 		}
 	};
 
+    template<typename DataType>
+    DataType compute_barlow_ti(double di, const std::vector<unsigned int>& ai, std::vector<DataType>& wi) {
+        using T=DataType;
+        auto max_wi_it = std::max_element(wi.begin(), wi.end());
+        unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
+        T lower_bound = -T(1.0) / T(*max_wi_it);
+        T upper_bound(1.0);
+        T tol(1e-10);
+
+        std::function<T(T)> func = [&](T ti)->T{
+            T result = T(di) / (T(1) - ti);
+            std::vector<T> results(ai.size(), T(0));
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                results[j] = (wi[j]*ai[j]) / (T(1)+wi[j]*ti);
+            }
+            return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
+        };
+        
+        T ti(brent::zero(lower_bound, upper_bound, tol, func));
+        return ti;
+    };
+
+    template<typename DataType>
+    struct compute_barlow_LLH {
+        using T=DataType;
+        DataType operator()(double di, const std::vector<unsigned int>& ai, std::vector<DataType>& wi) {
+            std::vector<T> Ai(ai.size());
+            T ti(1);
+            if(di > 0) {
+                //std::cout << "have data" << std::endl;
+                std::function<T(T)> func = [&](T ti)->T{
+                    T result = T(di) / (T(1) - ti);
+                    std::vector<T> results(ai.size(), T(0));
+                    for(unsigned int j=0; j<ai.size(); ++j) {
+                        results[j] = (wi[j]*ai[j]) / (T(1)+wi[j]*ti);
+                    }
+                    return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
+                };
+
+                auto max_wi_it = std::max_element(wi.begin(), wi.end());
+                unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
+                T lower_bound = -T(1.0) / T(*max_wi_it);
+                T upper_bound(1.0);
+                T tol(1e-10);
+            
+                
+                //ti = brent::zero(lower_bound, upper_bound, tol, func);
+                ti = compute_barlow_ti(di, ai, wi);
+                //std::cout << "ti: " << lower_bound << " <= " << ti << std::endl;
+
+                // Special case: MC source with the largest strength has zero MC events
+                if(ai[max_wi_i] == 0) {
+                    //std::cout << "special case\n";
+                    T Aki = T(di) / (T(1.0) + T(*max_wi_it));
+                    for(unsigned int j=0; j<ai.size(); ++j) {
+                        if(j == max_wi_i) {
+                            continue;
+                        }
+                        if(*max_wi_it == wi[j]) {
+                            Aki = T(0);
+                            break;
+                        }
+                        Aki -= wi[j]*ai[j]/(*max_wi_it - wi[j]);
+                    }
+                    if(Aki < 0)
+                        Aki = T(0);
+                    Ai[max_wi_i] = Aki;
+                    if(Aki > T(0)) {
+                        ti = lower_bound;
+                        for(unsigned int j=0; j<ai.size(); ++j) {
+                            if(j == max_wi_i)
+                                continue;
+                            Ai[j] = ai[j] / (T(1)+wi[j]*ti);
+                        }
+                    }
+                }
+                else {
+                    for(unsigned int j=0; j<ai.size(); ++j) {
+                        Ai[j] = ai[j] / (T(1)+wi[j]*ti);
+                    }
+                }
+            }
+            else {
+                //std::cout << "no data" << std::endl;
+                for(unsigned int j=0; j<ai.size(); ++j) {
+                    Ai[j] = ai[j] / (T(1)+wi[j]*ti);
+                }
+            }
+
+            T f(0);
+            T sum(0);
+            
+            /*std::cout << "ti = " << ti << std::endl;
+            std::cout << "wi[j](" << wi.size() << ") = [";
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                std::cout << wi[j] << ", ";
+            }
+            std::cout << "]" << std::endl;
+            std::cout << "ai[j](" << ai.size() << ") = [";
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                std::cout << ai[j] << ", ";
+            }
+            std::cout << "]" << std::endl;
+            std::cout << "Ai[j](" << Ai.size() << ") = [";
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                std::cout << Ai[j] << ", ";
+            }
+            std::cout << "]" << std::endl;
+            */
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                if(Ai[j] < T(0))
+                    Ai[j] = T(0);
+                f += wi[j]*Ai[j];
+                sum += ai[j]*log(Ai[j]) - Ai[j] - lgamma(ai[j]+T(1));
+            }
+            sum += T(di)*log(f) - f - lgamma(T(di)+T(1));
+            //std::cout << "sum = " << sum << std::endl;
+
+            return sum;
+        }
+    };
+
+    template<unsigned int Dim, typename T>
+    struct compute_barlow_LLH<phys_tools::autodiff::FD<Dim, T>> {
+        using result_type=phys_tools::autodiff::FD<Dim, T>;
+        result_type operator()(double di, const std::vector<unsigned int>& ai, std::vector<result_type>& dwi) {
+            std::vector<T> wi(dwi.size());
+            for(unsigned int j; j<dwi.size(); ++j) {
+                wi[j] = dwi[j].value();
+            }
+
+            bool special_case = false;
+            auto max_wi_it = std::max_element(wi.begin(), wi.end());
+            unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
+            T lower_bound = -T(1.0) / T(*max_wi_it);
+            T ti(1);
+            result_type dti(1);
+            
+            if(di == 0) {
+                ti = T(1);
+                dti = ti;
+                const unsigned int n=phys_tools::autodiff::detail::dimensionExtractor<phys_tools::autodiff::FD,Dim,T>::nVars(dti);
+                for(unsigned int i; i<n; ++i) {
+                    dti.setDerivative(i, T(0));
+                }
+            }
+            else
+                ti = compute_barlow_ti<T>(di, ai, wi);
+            
+            std::vector<T> Ai(ai.size());
+                
+            // Special case: MC source with the largest strength has zero MC events
+            if(ai[max_wi_i] == 0) {
+                //std::cout << "special case\n";
+                T Aki = T(di) / (T(1.0) + T(*max_wi_it));
+                for(unsigned int j=0; j<ai.size(); ++j) {
+                    if(j == max_wi_i) {
+                        continue;
+                    }
+                    if(*max_wi_it == wi[j]) {
+                        Aki = T(0);
+                        break;
+                    }
+                    Aki -= wi[j]*ai[j]/(*max_wi_it - wi[j]);
+                }
+                if(Aki < 0)
+                    Aki = T(0);
+                Ai[max_wi_i] = Aki;
+                if(Aki > T(0)) {
+                    ti = lower_bound;
+                    special_case = true;
+                    for(unsigned int j=0; j<ai.size(); ++j) {
+                        if(j == max_wi_i)
+                            continue;
+                        Ai[j] = ai[j] / (T(1)+wi[j]*ti);
+                    }
+                }
+                else {
+                    for(unsigned int j=0; j<ai.size(); ++j) {
+                        Ai[j] = ai[j] / (T(1)+wi[j]*ti);
+                    }
+                }
+            }
+            else {
+                for(unsigned int j=0; j<ai.size(); ++j) {
+                    Ai[j] = ai[j] / (T(1)+wi[j]*ti);
+                }
+            }
+            dti = ti;
+
+            T fi(0);
+            T Li(0);
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                if(Ai[j] < T(0))
+                    Ai[j] = T(0);
+                fi += wi[j]*Ai[j];
+                Li += ai[j]*log(Ai[j]) - Ai[j] - lgamma(ai[j]+T(1));
+            }
+            Li += T(di)*log(fi) - fi - lgamma(T(di)+T(1));
+
+            result_type dfi(fi);
+            result_type dLi(Li);
+            std::vector<result_type> dAi;
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                dAi.push_back(result_type(Ai[j]));
+            }
+
+            const unsigned int n=phys_tools::autodiff::detail::dimensionExtractor<phys_tools::autodiff::FD,Dim,T>::nVars(dti);
+            for(unsigned int i; i<n; ++i) {
+                T dt(0);
+                T dt_den(0);
+                T dA(0);
+                T tmp(0);
+                if(di>0) {
+                    if(special_case) {
+                        dt = T(1)/pow(wi[max_wi_i],T(2)) * dwi[max_wi_i].derivative(i);
+                    }
+                    else{
+                        if(di > T(0)) {
+                            for(unsigned int j=0; j<ai.size(); ++j) {
+                                tmp = (wi[j]*ai[j])/pow(T(1)+wi[j]*ti, T(2));
+                                dt += dwi[j].derivative(i) * (Ai[j] - tmp*ti);
+                                dt_den += (pow(fi, T(2))/di + tmp*wi[j]);
+                            }
+                            dt /= dt_den;
+                        }
+                    }
+                }
+                for(unsigned int j=0; j<ai.size(); ++j) {
+                    if(!special_case || j!=max_wi_i) {
+                        dAi[j].setDerivative(i,-T(ai[j])/pow(T(1)+wi[j]*ti,T(2))*(dwi[j].derivative(i)*ti+dt));
+                        dA += dAi[j].derivative(i);
+                    }
+                }
+                if(special_case) {
+                    dAi[max_wi_i].setDerivative(i, -di/pow(T(1)+wi[max_wi_i], T(2)) - dA);
+                }
+                
+                dti.setDerivative(i, dt);
+                if(di>T(0)) {
+                    dfi.setDerivative(i, dt*pow(fi,T(2))/di);
+                }
+                else {
+                    T df(0);
+                    for(unsigned int j=0; j<ai.size(); ++j) {
+                        df += dwi[j].derivative(i) * Ai[j] + wi[j] * dAi[j].derivative(i);
+                    }
+                    dfi.setDerivative(i, df);
+                }
+                T dL((di/fi-T(1))*dfi.derivative(i));
+                for(unsigned int j=0; j<ai.size(); ++j) {
+                    assert(Ai[j]>0||ai[j]==0);
+                    if(Ai[j] > T(0)) {
+                        dL += (ai[j]/Ai[j] - T(1))*dAi[j].derivative(i);
+                    }
+                }
+                dLi.setDerivative(i, dL);
+            }
+            std::cout << "dti = " << dti << std::endl;
+            std::cout << "dfi = " << dti << std::endl;
+            std::cout << "dwi[j](" << dwi.size() << ") = [";
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                std::cout << dwi[j] << ", ";
+            }
+            std::cout << "]" << std::endl;
+            std::cout << "ai[j](" << ai.size() << ") = [";
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                std::cout << ai[j] << ", ";
+            }
+            std::cout << "]" << std::endl;
+            std::cout << "dAi[j](" << ai.size() << ") = [";
+            for(unsigned int j=0; j<ai.size(); ++j) {
+                std::cout << dAi[j] << ", ";
+            }
+            std::cout << "]" << std::endl;
+            std::cout << "dLi = " << dLi << std::endl;
+            
+            return dLi;
+        }
+    };
+
     struct barlowLikelihood {
         template<typename T>
         T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
@@ -238,72 +519,7 @@ namespace likelihood{
                 it = end;
             }
 
-            T ti(1);
-            std::vector<T> Ai(ai.size());
-
-            if(dataCount > 0) {
-                std::function<T(T)> func = [&](T ti)->T{
-                    T result = dataCount / (1. - ti);
-                    std::vector<T> results(ai.size(), 0);
-                    for(unsigned int j=0; j<ai.size(); ++j) {
-                        results[j] = (wi[j]*ai[j]) / (1+wi[j]*ti);
-                    }
-                    return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
-                };
-
-                auto max_wi_it = std::max_element(wi.begin(), wi.end());
-                unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
-                T lower_bound = -T(1.0) / T(*max_wi_it);
-                T upper_bound(1.0);
-                T tol(1e-10);
-
-                ti = brent::zero(lower_bound, upper_bound, tol, func);
-
-                // Special case: MC source with the largest strength has zero MC events
-                if(ai[max_wi_i] == 0) {
-                    T Aki = T(dataCount) / (T(1.0) + T(*max_wi_it));
-                    for(unsigned int j=0; j<categories.size(); ++j) {
-                        if(j == max_wi_i) {
-                            continue;
-                        }
-                        if(*max_wi_it == wi[j]) {
-                            Aki = T(0);
-                            break;
-                        }
-                        Aki -= wi[j]*ai[j]/(*max_wi_it - wi[j]);
-                    }
-                    if(Aki != T(0)) {
-                        ti = lower_bound;
-                        for(unsigned int j=0; j<ai.size(); ++j) {
-                            Ai[j] = ai[j] / (1+wi[j]*ti);
-                        }
-                        Ai[max_wi_i] = Aki;
-                    }
-                }
-                else {
-                    for(unsigned int j=0; j<ai.size(); ++j) {
-                        Ai[j] = ai[j] / (1+wi[j]*ti);
-                    }
-                }
-            }
-            else {
-                for(unsigned int j=0; j<ai.size(); ++j) {
-                    Ai[j] = ai[j] / (1+wi[j]*ti);
-                }
-
-            }
-
-            T f(0);
-            T sum(0);
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                f += wi[j]*Ai[j];
-                sum += ai[j]*log(Ai[j]) - Ai[j];
-            }
-            sum += T(dataCount)*log(f) - f;
-
-
-            return sum;
-
+            return compute_barlow_LLH<T>()(dataCount, ai, wi);
         }
     };
 	
@@ -579,15 +795,20 @@ namespace likelihood{
                 std::vector<unsigned int> categories;
 
                 unsigned int category = categoryWeights[0];
+                std::cout << "categories = [" << category;
                 unsigned int count = 1;
 
                 for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
                     if(*it != category) {
                         category = *it;
+                        std::cout << ", " << category;
                         categories.push_back(count);
                         count = 0;
                     }
+                    ++count;
                 }
+                categories.push_back(count);
+                std::cout << "]" << std::endl;
 				
 				auto contribution=likelihoodFunction(observationAmount,expectationWeights,categories);
 				/*{
@@ -623,15 +844,20 @@ namespace likelihood{
                     std::vector<unsigned int> categories;
 
                     unsigned int category = categoryWeights[0];
+                    std::cout << "categories = [" << category;
                     unsigned int count = 1;
 
                     for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
                         if(*it != category) {
                             category = *it;
+                            std::cout << " " << category;
                             categories.push_back(count);
                             count = 0;
                         }
+                        ++count;
                     }
+                    categories.push_back(count);
+                    std::cout << "]" << std::endl;
 	
 					auto contribution=likelihoodFunction(0,expectationWeights,categories);
 					/*{
