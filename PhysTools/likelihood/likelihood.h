@@ -226,7 +226,7 @@ namespace likelihood{
 	};
 
     template<typename DataType>
-    DataType compute_barlow_ti(double di, const std::vector<unsigned int>& ai, std::vector<DataType>& wi) {
+    DataType compute_barlow_ti(double di, const std::vector<unsigned int>& ai, const std::vector<DataType>& wi) {
         using T=DataType;
         auto max_wi_it = std::max_element(wi.begin(), wi.end());
         unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
@@ -250,7 +250,7 @@ namespace likelihood{
     template<typename DataType>
     struct compute_barlow_LLH {
         using T=DataType;
-        DataType operator()(double di, const std::vector<unsigned int>& ai, std::vector<DataType>& wi) {
+        DataType operator()(double di, const std::vector<unsigned int>& ai, const std::vector<DataType>& wi) {
             std::vector<T> Ai(ai.size());
             T ti(1);
             if(di > 0) {
@@ -328,7 +328,7 @@ namespace likelihood{
     template<unsigned int Dim, typename T>
     struct compute_barlow_LLH<phys_tools::autodiff::FD<Dim, T>> {
         using result_type=phys_tools::autodiff::FD<Dim, T>;
-        result_type operator()(double di, const std::vector<unsigned int>& ai, std::vector<result_type>& dwi) {
+        result_type operator()(double di, const std::vector<unsigned int>& ai, const std::vector<result_type>& dwi) {
             std::vector<T> wi(dwi.size());
             for(unsigned int j; j<dwi.size(); ++j) {
                 wi[j] = dwi[j].value();
@@ -464,6 +464,27 @@ namespace likelihood{
         }
     };
 
+    struct barlowSimpleLikelihood {
+        template<typename T>
+        T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
+            auto it = simulationWeights.begin();
+            auto end = simulationWeights.begin();
+            std::vector<T> wi(1);
+            const std::vector<unsigned int> ai(1, simulationWeights.size());
+            for(unsigned int j=0; j<wi.size(); ++j) {
+                end += simulationWeights.size();
+                wi[j] = std::accumulate(it, end, T(0), std::plus<T>()) / ai[j];
+                it = end;
+            }
+            if(ai.size()>0) {
+                return compute_barlow_LLH<T>()(dataCount, ai, wi);
+            }
+            else {
+                return T(0);
+            }
+        }
+    };
+
     struct barlowLikelihood {
         template<typename T>
         T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
@@ -476,8 +497,28 @@ namespace likelihood{
                 wi[j] = std::accumulate(it, end, T(0), std::plus<T>()) / ai[j];
                 it = end;
             }
+            if(ai.size()>0) {
+                return compute_barlow_LLH<T>()(dataCount, ai, wi);
+            }
+            else {
+                return T(0);
+            }
+        }
+    };
 
-            return compute_barlow_LLH<T>()(dataCount, ai, wi);
+    struct barlowExtendedLikelihood {
+        template<typename T>
+        T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
+            auto it = simulationWeights.begin();
+            auto end = simulationWeights.begin();
+            const std::vector<T> & wi = simulationWeights;
+            const std::vector<unsigned int> ai(simulationWeights.size(), 1);
+            if(ai.size()>0) {
+                return compute_barlow_LLH<T>()(dataCount, ai, wi);
+            }
+            else {
+                return T(0);
+            }
         }
     };
 	
@@ -753,20 +794,20 @@ namespace likelihood{
                 std::vector<unsigned int> categories;
                 if(categoryWeights.size()>0) {
                     unsigned int category = categoryWeights[0];
-                    std::cout << "categories = [" << category;
+                    //std::cout << "categories = [" << category;
                     unsigned int count = 1;
 
                     for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
                         if(*it != category) {
                             category = *it;
-                            std::cout << ", " << category;
+                            //std::cout << ", " << category;
                             categories.push_back(count);
                             count = 0;
                         }
                         ++count;
                     }
                     categories.push_back(count);
-                    std::cout << "]" << std::endl;
+                    //std::cout << "]" << std::endl;
                 }
 				
 				auto contribution=likelihoodFunction(observationAmount,expectationWeights,categories);
@@ -803,20 +844,20 @@ namespace likelihood{
                     std::vector<unsigned int> categories;
                     if(categoryWeights.size()>0) {
                         unsigned int category = categoryWeights[0];
-                        std::cout << "categories = [" << category;
+                        //std::cout << "categories = [" << category;
                         unsigned int count = 1;
 
                         for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
                             if(*it != category) {
                                 category = *it;
-                                std::cout << ", " << category;
+                                //std::cout << ", " << category;
                                 categories.push_back(count);
                                 count = 0;
                             }
                             ++count;
                         }
                         categories.push_back(count);
-                        std::cout << "]" << std::endl;
+                        //std::cout << "]" << std::endl;
                     }
 	
 					auto contribution=likelihoodFunction(0,expectationWeights,categories);
