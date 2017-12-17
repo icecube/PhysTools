@@ -14,8 +14,6 @@
 
 #include <boost/mpl/if.hpp>
 
-#include "./autodiff.h"
-
 namespace phys_tools {
 namespace residuals {
 
@@ -23,10 +21,10 @@ template<typename T>
 struct residual_computer {
     std::vector<T> operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m) {
         // Useful things to precompute
-        unsigned int N = n.size();
-        unsigned int M = m.size();
-        unsigned int max_n = std::max_element(n.begin(), n.end());
-        unsigned int max_m = std::max_element(m.begin(), m.end());
+        const unsigned int N = n.size();
+        const unsigned int M = m.size();
+        const unsigned int max_n = *std::max_element(n.begin(), n.end());
+        const unsigned int max_m = *std::max_element(m.begin(), m.end());
 
         std::vector<T> ss_diff(M*M);
         std::vector<T> zs_diff(N*M);
@@ -40,7 +38,7 @@ struct residual_computer {
                 ss_diff(i, j) = s[i] - s[j];
             }
 	    	for(unsigned int i=0; i<N; ++i) {
-                zs_diff(i, j) = z[i] - z[j];
+                zs_diff(i, j) = z[i] - s[j];
             }
 		}
 
@@ -68,15 +66,15 @@ struct residual_computer {
                         lambda[i] += m[j]/pow(ss_diff(j, k), i+1);
                 }
                 for(unsigned int j=0; j<N; ++j) {
-                    lambda[i] += n[j]/pow(zs_diff(j, k), i+1);
+                    lambda[i] -= n[j]/pow(zs_diff(j, k), i+1);
                 }
             }
-            for(unsigned int L=m[k]-2; L>=0; --L) {
+            for(unsigned int L=m[k]-1; L>=1; --L) {
                 //c(k, L) = 0;
-                for(unsigned int i=0; i<m[k] - L; ++i) {
-                    c(k, L) += c(k, L+i+1) * lambda[i];
+                for(unsigned int i=1; i<=m[k] - L; ++i) {
+                    c(k, L-1) += c(k, L+i-1) * lambda[i-1];
                 }
-                c(k, L) = c(k, L) / (m[k] - (L+1));
+                c(k, L-1) = c(k, L-1) / (m[k] - L);
             }
         }
 
@@ -87,7 +85,7 @@ struct residual_computer {
         return c;
     }
     
-}
+};
 
 } // namespace residuals
 } // namespace phys_tools
