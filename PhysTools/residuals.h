@@ -87,6 +87,24 @@ struct residual_computer {
     
 };
 
+template<typename T>
+struct contour_integral {
+    T operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m) {
+        const unsigned int M = m.size();
+        const unsigned int max_m = *std::max_element(m.begin(), m.end());
+        std::vector<T> c = residual_computer<T>(z, n, s, m);
+        #define c(i, j) (c[(i)*max_m + (j)])
+
+        T residual_sum(0);
+
+        for(unsigned int k=0; k<M; ++k) {
+            residual_sum += c(k,0);
+        }
+        #undef c
+        return residual_sum
+    }
+};
+
 } // namespace residuals
 } // namespace phys_tools
 
