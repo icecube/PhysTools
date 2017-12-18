@@ -18,6 +18,7 @@
 
 #include "../histogram.h"
 #include "../brent.h"
+#include "../residuals.h"
 
 #include "../autodiff.h"
 #include "../ThreadPool.h"
@@ -45,7 +46,7 @@ namespace likelihood{
 	
 	struct poissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights, std::vector<unsigned int>& categories) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
 			T lambda=std::accumulate(simulationWeights.begin(),simulationWeights.end(),T(0),std::plus<T>());
 			if(lambda==0)
 				return(0);
@@ -59,7 +60,7 @@ namespace likelihood{
 	
 	struct dimaLikelihood{
 		template<typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights, std::vector<unsigned int>& categories) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
 			//std::cout << "   " << dataCount << " observed events compared to " << simulationWeights.size() << " simulated events" << '\n';
 			using std::abs; //we want access to std::abs for things like doubles so that we can also find things under the same name via ADL
 			
@@ -171,7 +172,7 @@ namespace likelihood{
 	
 	struct chi2Likelihood{
 		template<typename T>
-		T operator()(unsigned int dataCount, const std::vector<T>& expectationWeights, std::vector<unsigned int>& categories) const{
+		T operator()(unsigned int dataCount, const std::vector<T>& expectationWeights) const{
 			T exp=std::accumulate(expectationWeights.begin(),expectationWeights.end(),T(0),std::plus<T>());
 			if(exp>0){
 				T diff=dataCount-exp;
@@ -183,7 +184,7 @@ namespace likelihood{
 	
 	struct saturatedPoissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights, std::vector<unsigned int>& categories) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
 			if(dataCount==0)
 				return(0);
 			T sum(dataCount);
@@ -198,7 +199,7 @@ namespace likelihood{
 	///http://dx.doi.org/10.1016/j.nima.2012.06.021
 	struct bohmZechLikelihood{
 		template<typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights, std::vector<unsigned int>& categories) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
 			//having an observation where there is no simulation is a problem, but
 			//we can't really solve it in his context, so we return 0 to leave
 			//the likelihood unaffected
@@ -521,6 +522,48 @@ namespace likelihood{
             }
         }
     };
+    
+    struct thorstenLikelihood {
+        template<typename T>
+        T operator()(double k, const std::vector<T>& raw_w) const {
+            unsigned int count = 1;
+            std::vector<unsigned int> kmc;
+            std::vector<T> w;
+            if(raw_w.size()>0) {
+                T wi = raw_w[0];
+                for(auto it=raw_w.begin()+1; it!=raw_w.end(); ++it) {
+                    if(*it != wi) {
+                        w.push_back(wi);
+                        wi = *it;
+                        kmc.push_back(count);
+                        count = 0;
+                    }
+                    ++count;
+                }
+                if(count > 0) {
+                    w.push_back(wi);
+                    kmc.push_back(count);
+                }
+
+                const unsigned int kmc_tot = std::accumulate(kmc.begin(), kmc.end(), (unsigned int)(0), std::plus<unsigned int>());
+                const unsigned int M = w.size(); // Number of distinct weights
+                T L(1);
+                const std::vector<T> z(1, T(0));
+                const std::vector<unsigned int> n(1, (unsigned int)(k+kmc_tot-1));
+                std::vector<T> s(w.size());
+                for(unsigned int i=0; i<M; ++i) {
+                    s[i] = T(1) / (T(1) + T(1) / w[i]);
+                    L *= pow(s[i]/w[i], kmc[i]);
+                }
+                const std::vector<unsigned int>& m = kmc;
+                L *= residuals::contour_integral<T>()(z, n, s, m);
+                return L;
+            }
+            else {
+                return T(0);
+            }
+        }
+    };
 	
 	//A bin type for keeping events in their histogram bins
 	
@@ -667,6 +710,38 @@ namespace likelihood{
 		template<typename Event>
 		result_type operator()(const Event& e) const{ return(1.0); }
 	};
+
+    template<typename T, typename U>
+    struct weightComparator {
+        bool operator()(const T& a, const U& b) {
+            return a<b;
+        }
+    };
+    
+    template<unsigned int Dim0, typename T, typename U>
+    struct weightComparator<phys_tools::autodiff::FD<Dim0, T>, U> {
+        using autoT=phys_tools::autodiff::FD<Dim0, T>;
+        bool operator()(const autoT& a, const U& b) {
+            return a.value() < b;
+        }
+    };
+	
+    template<typename T, unsigned int Dim1, typename U>
+    struct weightComparator<T, phys_tools::autodiff::FD<Dim1, U>> {
+        using autoU=phys_tools::autodiff::FD<Dim1, U>;
+        bool operator()(const T& a, const autoU& b) {
+            return a < b.value();
+        }
+    };
+	
+    template<unsigned int Dim0, typename T, unsigned int Dim1, typename U>
+    struct weightComparator<phys_tools::autodiff::FD<Dim0, T>, phys_tools::autodiff::FD<Dim1, U>> {
+        using autoT=phys_tools::autodiff::FD<Dim0, T>;
+        using autoU=phys_tools::autodiff::FD<Dim1, U>;
+        bool operator()(const autoT& a, const autoU& b) {
+            return a.value() < b.value();
+        }
+    };
 	
 	// fundamental wrapper object for setting up likelihood fits for models by comparing observed data
 	// events to simulated events
@@ -766,7 +841,6 @@ namespace likelihood{
 				double observationAmount=std::accumulate(obs.begin(),obs.end(),0.0,dataWeightAccumulator);
 				
 				std::vector<DataType> expectationWeights;
-				std::vector<unsigned int> categoryWeights;
 				typename HistogramType::const_iterator expIt=simulation.findBinIterator(it);
 				if(expIt!=simulation.end()){
 					/*{
@@ -778,10 +852,8 @@ namespace likelihood{
 					}*/
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*expIt).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*expIt).size());
-					categoryWeights.reserve(((entryStoringBin<Event>)*expIt).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
 						expectationWeights.push_back(weighter(e));
-						categoryWeights.push_back(e.category);
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 							std::lock_guard<std::mutex> lck(printMtx);
 							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
@@ -791,26 +863,9 @@ namespace likelihood{
 					}
 				}
 
-                std::vector<unsigned int> categories;
-                if(categoryWeights.size()>0) {
-                    unsigned int category = categoryWeights[0];
-                    //std::cout << "categories = [" << category;
-                    unsigned int count = 1;
-
-                    for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
-                        if(*it != category) {
-                            category = *it;
-                            //std::cout << ", " << category;
-                            categories.push_back(count);
-                            count = 0;
-                        }
-                        ++count;
-                    }
-                    categories.push_back(count);
-                    //std::cout << "]" << std::endl;
-                }
+                std::sort(expectationWeights.begin(), expectationWeights.end(), weightComparator<DataType, DataType>());
 				
-				auto contribution=likelihoodFunction(observationAmount,expectationWeights,categories);
+				auto contribution=likelihoodFunction(observationAmount,expectationWeights);
 				/*{
 					std::lock_guard<std::mutex> lck(printMtx);
 					DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
@@ -832,35 +887,15 @@ namespace likelihood{
 				//only proceed if this bin does not exist in the observation
 				if(obsIt==observation.end()){
 					std::vector<DataType> expectationWeights;
-					std::vector<unsigned int> categoryWeights;
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*it).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*it).size());
-					categoryWeights.reserve(((entryStoringBin<Event>)*it).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*it)) {
 						expectationWeights.push_back(weighter(e));
-						categoryWeights.push_back(e.category);
                     }
 					
-                    std::vector<unsigned int> categories;
-                    if(categoryWeights.size()>0) {
-                        unsigned int category = categoryWeights[0];
-                        //std::cout << "categories = [" << category;
-                        unsigned int count = 1;
-
-                        for(auto it=categoryWeights.begin()+1; it!=categoryWeights.end(); ++it) {
-                            if(*it != category) {
-                                category = *it;
-                                //std::cout << ", " << category;
-                                categories.push_back(count);
-                                count = 0;
-                            }
-                            ++count;
-                        }
-                        categories.push_back(count);
-                        //std::cout << "]" << std::endl;
-                    }
+                    std::sort(expectationWeights.begin(), expectationWeights.end(), weightComparator<DataType, DataType>());
 	
-					auto contribution=likelihoodFunction(0,expectationWeights,categories);
+					auto contribution=likelihoodFunction(0,expectationWeights);
 					/*{
 						std::lock_guard<std::mutex> lck(printMtx);
 						DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));

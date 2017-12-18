@@ -92,16 +92,18 @@ struct contour_integral {
     T operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m) {
         const unsigned int M = m.size();
         const unsigned int max_m = *std::max_element(m.begin(), m.end());
-        std::vector<T> c = residual_computer<T>(z, n, s, m);
+        std::vector<T> c = residual_computer<T>()(z, n, s, m);
         #define c(i, j) (c[(i)*max_m + (j)])
 
         T residual_sum(0);
 
+        std::cout << "residuals:" << std::endl;
         for(unsigned int k=0; k<M; ++k) {
+            std::cout << "c(" << k << ",0) = " << c(k,0) << std::endl;
             residual_sum += c(k,0);
         }
         #undef c
-        return residual_sum
+        return residual_sum;
     }
 };
 
