@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <vector>
 #include <deque>
+#include <cfenv>
 
 #include <boost/math/constants/constants.hpp>
 
@@ -41,7 +42,7 @@ namespace likelihood{
 	struct ensure_reference_wrapper<std::reference_wrapper<T>>{
 		using type=typename std::reference_wrapper<T>;
 	};
-	
+    
 	//Frequently used likelihood functions
 	
 	struct poissonLikelihood{
@@ -522,16 +523,68 @@ namespace likelihood{
             }
         }
     };
+
+    // compute log(1+x) without losing precision for small values of x
+    template<typename T>
+    T LogOnePlusX(T x)
+    {
+        if (x <= -1.0)
+        {
+            std::stringstream os;
+            os << "Invalid input argument (" << x 
+               << "); must be greater than -1.0";
+            throw std::invalid_argument( os.str() );
+        }
+
+        if (fabs(x) > 1e-4)
+        {
+            // x is large enough that the obvious evaluation is OK
+            return log(1.0 + x);
+        }
+
+        // Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
+        // Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
+        return x-pow(x,2.0)/2.0+pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+    };
+
+    template<typename T>
+    T SFromW(T w) {
+        if(fabs(w) >= 1e-4) {
+            return 1.0 / (1.0+1.0/w);
+        }
+
+        return w - pow(w, 2.0) + pow(w, 3.0) - pow(w, 4.0) + pow(w, 5.0);
+    };
     
     struct thorstenLikelihood {
         template<typename T>
         T operator()(double k, const std::vector<T>& raw_w) const {
+            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
             unsigned int count = 1;
             std::vector<unsigned int> kmc;
             std::vector<T> w;
-            if(raw_w.size()>0) {
-                T wi = raw_w[0];
-                for(auto it=raw_w.begin()+1; it!=raw_w.end(); ++it) {
+
+            /*
+            std::cout << "RAW WEIGHTS BEGIN" << std::endl;
+
+            for(unsigned int i=0; i<raw_w.size(); ++i) {
+                std::cout << raw_w[i] << std::endl;
+            
+            }
+            std::cout << "RAW WEIGHTS END" << std::endl;
+            */
+
+            T zero(0);
+            auto starting_it = raw_w.begin();
+            for(; starting_it!=raw_w.end(); ++starting_it) {
+                if(zero < *starting_it && SFromW(*starting_it) != zero && LogOnePlusX(*starting_it) != zero) {
+                    break;
+                }
+            }
+            if(starting_it != raw_w.end()) {
+                //T wi = raw_w[0];
+                T wi(*starting_it);
+                for(auto it=starting_it+1; it!=raw_w.end(); ++it) {
                     if(*it != wi) {
                         w.push_back(wi);
                         wi = *it;
@@ -544,22 +597,36 @@ namespace likelihood{
                     w.push_back(wi);
                     kmc.push_back(count);
                 }
+                assert(std::distance(w.begin(), std::unique(w.begin(), w.end(), std::equal_to<T>())) == w.size());
 
                 const unsigned int kmc_tot = std::accumulate(kmc.begin(), kmc.end(), (unsigned int)(0), std::plus<unsigned int>());
                 const unsigned int M = w.size(); // Number of distinct weights
-                T L(1);
+                T L(0);
+                std::cout << "L = " << L << std::endl;
                 const std::vector<T> z(1, T(0));
                 const std::vector<unsigned int> n(1, (unsigned int)(k+kmc_tot-1));
                 std::vector<T> s(w.size());
                 for(unsigned int i=0; i<M; ++i) {
-                    s[i] = T(1) / (T(1) + T(1) / w[i]);
-                    L *= pow(s[i]/w[i], kmc[i]);
+                    s[i] = SFromW(w[i]);
+                    T f = LogOnePlusX(w[i]);
+                    L -= f;
                 }
+                L *= kmc_tot;
+                std::cout << "L *= " << kmc_tot << std::endl;
+                std::cout << "L = " << L << std::endl;
                 const std::vector<unsigned int>& m = kmc;
-                L *= residuals::contour_integral<T>()(z, n, s, m);
+                T f = static_cast<T>(residuals::contour_integral_bignum<1000, T>()(z, n, s, m));
+                std::cout << "f = " << f << std::endl;
+                assert(f > 0);
+                T lf = log(f);
+                L += lf;
+                std::cout << "L += " << lf << std::endl;
+                std::cout << "L = " << L << std::endl;
+                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
                 return L;
             }
             else {
+                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
                 return T(0);
             }
         }
@@ -711,38 +778,6 @@ namespace likelihood{
 		result_type operator()(const Event& e) const{ return(1.0); }
 	};
 
-    template<typename T, typename U>
-    struct weightComparator {
-        bool operator()(const T& a, const U& b) {
-            return a<b;
-        }
-    };
-    
-    template<unsigned int Dim0, typename T, typename U>
-    struct weightComparator<phys_tools::autodiff::FD<Dim0, T>, U> {
-        using autoT=phys_tools::autodiff::FD<Dim0, T>;
-        bool operator()(const autoT& a, const U& b) {
-            return a.value() < b;
-        }
-    };
-	
-    template<typename T, unsigned int Dim1, typename U>
-    struct weightComparator<T, phys_tools::autodiff::FD<Dim1, U>> {
-        using autoU=phys_tools::autodiff::FD<Dim1, U>;
-        bool operator()(const T& a, const autoU& b) {
-            return a < b.value();
-        }
-    };
-	
-    template<unsigned int Dim0, typename T, unsigned int Dim1, typename U>
-    struct weightComparator<phys_tools::autodiff::FD<Dim0, T>, phys_tools::autodiff::FD<Dim1, U>> {
-        using autoT=phys_tools::autodiff::FD<Dim0, T>;
-        using autoU=phys_tools::autodiff::FD<Dim1, U>;
-        bool operator()(const autoT& a, const autoU& b) {
-            return a.value() < b.value();
-        }
-    };
-	
 	// fundamental wrapper object for setting up likelihood fits for models by comparing observed data
 	// events to simulated events
 	template<typename Event, typename HistogramsType, typename DataWeighter, typename SimulationWeighterConstructor, typename CPrior, typename LFunc, int MaxDerivativeDimension=-1>
@@ -863,7 +898,7 @@ namespace likelihood{
 					}
 				}
 
-                std::sort(expectationWeights.begin(), expectationWeights.end(), weightComparator<DataType, DataType>());
+                std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
 				
 				auto contribution=likelihoodFunction(observationAmount,expectationWeights);
 				/*{
@@ -893,7 +928,7 @@ namespace likelihood{
 						expectationWeights.push_back(weighter(e));
                     }
 					
-                    std::sort(expectationWeights.begin(), expectationWeights.end(), weightComparator<DataType, DataType>());
+                    std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
 	
 					auto contribution=likelihoodFunction(0,expectationWeights);
 					/*{
