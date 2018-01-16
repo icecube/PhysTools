@@ -589,19 +589,31 @@ namespace likelihood{
                         w.push_back(wi);
                         wi = *it;
                         kmc.push_back(count);
+                        if(count > 1) {
+                            std::cout << "count: " << count << std::endl;
+                        }
                         count = 0;
                     }
                     ++count;
                 }
                 if(count > 0) {
                     w.push_back(wi);
+                    if(count > 1) {
+                        std::cout << "count: " << count << std::endl;
+                    }
                     kmc.push_back(count);
                 }
                 assert(std::distance(w.begin(), std::unique(w.begin(), w.end(), std::equal_to<T>())) == w.size());
 
                 const unsigned int kmc_tot = std::accumulate(kmc.begin(), kmc.end(), (unsigned int)(0), std::plus<unsigned int>());
                 const unsigned int M = w.size(); // Number of distinct weights
-                T L(0);
+
+
+                auto s_gen = boost::adaptors::transform(boost::irange((unsigned int)(0),(unsigned int)(M)),[&](unsigned int i){return SFromW(w[i]);});
+                std::vector<T> s(s_gen.begin(), s_gen.end());
+                T L(static_cast<T>(residuals::thorsten_fast<T>()(w,s,k)));
+                std::cout << "L = " << L << std::endl;
+                /*
                 std::cout << "L = " << L << std::endl;
                 const std::vector<T> z(1, T(0));
                 const std::vector<unsigned int> n(1, (unsigned int)(k+kmc_tot-1));
@@ -615,13 +627,15 @@ namespace likelihood{
                 std::cout << "L *= " << kmc_tot << std::endl;
                 std::cout << "L = " << L << std::endl;
                 const std::vector<unsigned int>& m = kmc;
-                T f = static_cast<T>(residuals::contour_integral_bignum<1000, T>()(z, n, s, m));
+                //T f = static_cast<T>(residuals::contour_integral_bignum<1000, T>()(z, n, s, m));
+                T f = 1;
                 std::cout << "f = " << f << std::endl;
                 assert(f > 0);
                 T lf = log(f);
                 L += lf;
                 std::cout << "L += " << lf << std::endl;
                 std::cout << "L = " << L << std::endl;
+                */
                 fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
                 return L;
             }
@@ -629,6 +643,52 @@ namespace likelihood{
                 fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
                 return T(0);
             }
+        }
+    };
+
+    struct thorstenSimpleLikelihood {
+        template<typename T>
+        T operator()(double k, const std::vector<T>& raw_w) const {
+            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+            double kmc = raw_w.size();
+            if(kmc <= 0) {
+                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+                return T(0);
+            }
+
+            T one(1);
+            T zero(0);
+            T L(0);
+            T w = accumulate(raw_w.begin(), raw_w.end(), zero, std::plus<T>()) / kmc;
+            
+            L += 
+                (
+                 lgamma(k+kmc)
+                 - 
+                 (
+                  lgamma(kmc)
+                  + 
+                  lgamma(k+1)
+                  )
+                 );
+            L -= 
+                (
+                 kmc
+                 *
+                 log(w)
+                 + 
+                 (k+kmc)
+                 *
+                 LogOnePlusX(
+                     one
+                     /
+                     w
+                     )
+                 );
+
+            fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+
+            return L;
         }
     };
 	
