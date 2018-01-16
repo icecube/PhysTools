@@ -183,11 +183,9 @@ namespace autodiff{
 		
         template<typename U>
         FD<nVars,T>& operator=(const FD<nVars,U>& f){
-			if(&f!=this){
-				v=f.value();
+			v=f.value();
 
-                f.copyGradient(g);
-			}
+            f.copyGradient(g);
 			return(*this);
 		}
 		
@@ -427,7 +425,7 @@ namespace autodiff{
 	
 	template <unsigned int nVars, typename T, typename U>
 	FD<nVars,T> operator*(const U& u, const FD<nVars,T>& f){
-		return(f*u);
+		return(f.operator*(u));
 	}
 
 	template <unsigned int nVars, typename T, typename U>
