@@ -14,8 +14,11 @@
 #include <ttmath/ttmath.h>
 
 #include <boost/math/constants/constants.hpp>
-#include <boost/range/adaptor/strided.hpp>
+#include <boost/range/adaptors.hpp>
+#include <boost/range/irange.hpp>
+#include <boost/range/join.hpp>
 #include <boost/multiprecision/mpfr.hpp>
+#include <boost/iterator/iterator_traits.hpp>
 
 #include <boost/mpl/if.hpp>
 
@@ -23,11 +26,32 @@
 
 namespace phys_tools {
 namespace residuals {
+template <typename U, typename InIt>
+U accumulate_intermediate(InIt begin, InIt end) {
+    //typedef typename std::iterator_traits<InIt>::value_type real;
+    U sum = U(0);
+    U running_error = U(0);
+    U temp;
+    U difference;
+
+    for (; begin != end; ++begin) {
+        difference = *begin;
+        difference -= running_error;
+        temp = sum;
+        temp += difference;
+        running_error = temp;
+        running_error -= sum;
+        running_error -= difference;
+        sum = std::move(temp);
+    }
+    return sum;
+}
+
 template <class InIt>
 typename std::iterator_traits<InIt>::value_type accumulate(InIt begin, InIt end) {
     typedef typename std::iterator_traits<InIt>::value_type real;
-    real sum = real();
-    real running_error = real();
+    real sum = real(0);
+    real running_error = real(0);
     real temp;
     real difference;
 
@@ -371,16 +395,145 @@ struct contour_integral_bignum<digits10, phys_tools::autodiff::FD<Dim, T> > {
     }
 };
 
+template<unsigned int digits10, typename T>
+struct make_big_type {
+    using big_type=boost::multiprecision::number<boost::multiprecision::mpfr_float_backend<digits10, boost::multiprecision::allocate_stack> >;
+};
+
+template<unsigned int digits10, unsigned int Dim, typename T>
+struct make_big_type<digits10, phys_tools::autodiff::FD<Dim, T> > {
+    using big_type=phys_tools::autodiff::FD<Dim, boost::multiprecision::number<boost::multiprecision::mpfr_float_backend<digits10, boost::multiprecision::allocate_stack> > >;
+};
+
+// compute log(1+x) without losing precision for small values of x
 template<typename T>
-struct contour_integral_fast {
-    T operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m) {
+T LogOnePlusX(T x)
+{
+    if (x <= -1.0)
+    {
+        std::stringstream os;
+        os << "Invalid input argument (" << x 
+           << "); must be greater than -1.0";
+        throw std::invalid_argument( os.str() );
+    }
+
+    if (fabs(x) > 1e-4)
+    {
+        // x is large enough that the obvious evaluation is OK
+        return log(1.0 + x);
+    }
+
+    // Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
+    // Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
+    return x-pow(x,2.0)/2.0+pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+};
+
+// compute log(1+x) without losing precision for small values of x
+template<typename T>
+T LogDiff(T const & a, T const & b)
+{
+    T x;
+    T res;
+    if(a > b) {
+        x = b/a;
+        res = -log(a);
+    }
+    else {
+        x = a/b;
+        res = -log(b);
+    }
+
+    if (fabs(x) > 1e-4)
+    {
+        // x is large enough that the obvious evaluation is OK
+        return log(1.0 + x);
+    }
+
+
+    // Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
+    // Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
+    res += x-pow(x,2.0)/2.0+pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+    return res;
+};
+
+template<typename T>
+struct thorsten_fast {
+    typedef typename make_big_type<16, T>::big_type big_type;
+    big_type operator()(std::vector<T>const& w, std::vector<T>const& s, unsigned int D) {
         feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-        const unsigned int M = m.size();
-        const unsigned int max_m = *std::max_element(m.begin(), m.end());
-        std::vector<big_type> big_s(s.begin(), s.end());
-        std::vector<big_type> c;
+        unsigned int M = s.size();
+        //const unsigned int max_m = *std::max_element(m.begin(), m.end());
+
+        //std::vector<T> w_diffs(M*M-M);
+        //std::vector<T> lw_diffs(M*M-M);
+        std::vector<bool> signs(M*M-M);
+
+        unsigned int idx;
+        for(unsigned int i=0; i<M; ++i) {
+            for(unsigned int j=i+1; j<M; ++j) {
+                idx = i*(2*M-i-3)/2+j-1;
+                //w_diffs[idx] = w[j] - w[i];
+                signs[idx] = s[i]-s[j] < 0;
+                //lw_diffs[idx] = log(fabs(w_diffs[idx]));
+            }
+        }
+
+        big_type sum;
+
+        std::vector<T> single_term(1);
+
+        auto get_sum = [M, D, &signs, &w, &s, &sum, &single_term](unsigned int i){
+            single_term[0] = (D + M - 1)*log(s[i]);
+
+            std::function<T(unsigned int)> get_mls_diff([&](unsigned int j)->T{return -log(fabs(s[i] - s[j]));});
+            std::function<bool(unsigned int)> get_sign([&](unsigned int x)->bool{return signs[i*(2*M-i-3)/2+x-1];});
+            std::function<bool(unsigned int)> get_neg_sign([&](unsigned int x)->bool{return !signs[i*(2*M-i-3)/2+x-1];});
+
+            unsigned int a = 0;
+            unsigned int b = i;
+
+            auto neg_range = boost::irange(a, b);
+            a = i+1;
+            b = M;
+            auto pos_range = boost::irange(i+1, M);
+            auto full_range = boost::join(neg_range, pos_range);
+            
+            auto sign_neg = boost::adaptors::transform(neg_range, get_neg_sign);
+            auto sign_pos = boost::adaptors::transform(pos_range, get_sign);
+
+            auto mls_diff = boost::adaptors::transform(full_range, get_mls_diff);
+            auto signs = boost::join(sign_pos, sign_neg);
+
+            bool sign = std::accumulate(signs.begin(), signs.end(), false, [](bool a, bool b)->bool{return a^b;});
+
+            auto terms = boost::join(single_term, mls_diff);
+
+            sum = accumulate_intermediate<big_type>(terms.begin(), terms.end());
+            sum = exp(sum);
+            sum *= ((sign) ? -1:1);
+            //big_type sum = ((sign) ? -1:1)*exp(big_type(-accumulate(lw.begin(), lw.end())));
+        };
+        auto l = boost::adaptors::transform(boost::irange((unsigned int)(0),(unsigned int)(M)), [&](unsigned int i)->big_type&{get_sum(i); return sum;});
+        
+        big_type big_result = accumulate_intermediate<big_type>(l.begin(), l.end());
+        big_result = log(big_result);
+
+        auto get_prefactor = [&](unsigned int i){return LogOnePlusX(w[i]);};
+
+        auto prefactors = boost::adaptors::transform(boost::irange((unsigned int)0,M), get_prefactor);
+    
+        big_type prefactor = accumulate(prefactors.begin(), prefactors.end());
+
+        std::cout << "prefactor: " << prefactor << std::endl;
+        std::cout << "big_result: " << big_result << std::endl;
+
+        T result = static_cast<T>(big_result - prefactor);
+
+        std::cout << "result:" << result << std::endl;
+        //T result = static_cast<T>(big_result);
     
         fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+        return result;
     }
 };
 
