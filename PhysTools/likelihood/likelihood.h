@@ -609,11 +609,11 @@ namespace likelihood{
                 const unsigned int M = w.size(); // Number of distinct weights
 
 
-                auto s_gen = boost::adaptors::transform(boost::irange((unsigned int)(0),(unsigned int)(M)),[&](unsigned int i){return SFromW(w[i]);});
-                std::vector<T> s(s_gen.begin(), s_gen.end());
-                T L(static_cast<T>(residuals::thorsten_fast<T>()(w,s,k)));
-                std::cout << "L = " << L << std::endl;
-                /*
+                //auto s_gen = boost::adaptors::transform(boost::irange((unsigned int)(0),(unsigned int)(M)),[&](unsigned int i){return SFromW(w[i]);});
+                //std::vector<T> s(s_gen.begin(), s_gen.end());
+                //T L(static_cast<T>(residuals::thorsten_fast<T>()(w,s,k)));
+                //std::cout << "L = " << L << std::endl;
+                T L(0);
                 std::cout << "L = " << L << std::endl;
                 const std::vector<T> z(1, T(0));
                 const std::vector<unsigned int> n(1, (unsigned int)(k+kmc_tot-1));
@@ -628,14 +628,15 @@ namespace likelihood{
                 std::cout << "L = " << L << std::endl;
                 const std::vector<unsigned int>& m = kmc;
                 //T f = static_cast<T>(residuals::contour_integral_bignum<1000, T>()(z, n, s, m));
-                T f = 1;
+                T f = residuals::contour_integral<T>()(z, n, s, m);
+                //T f = 1;
                 std::cout << "f = " << f << std::endl;
                 assert(f > 0);
                 T lf = log(f);
                 L += lf;
                 std::cout << "L += " << lf << std::endl;
                 std::cout << "L = " << L << std::endl;
-                */
+                
                 fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
                 return L;
             }

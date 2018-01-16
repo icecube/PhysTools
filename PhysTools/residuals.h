@@ -11,13 +11,12 @@
 #include <vector>
 #include <deque>
 #include <cfenv>
-#include <ttmath/ttmath.h>
 
 #include <boost/math/constants/constants.hpp>
 #include <boost/range/adaptors.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/range/join.hpp>
-#include <boost/multiprecision/mpfr.hpp>
+//#include <boost/multiprecision/mpfr.hpp>
 #include <boost/iterator/iterator_traits.hpp>
 
 #include <boost/mpl/if.hpp>
@@ -314,6 +313,7 @@ struct residual_computer {
     }
 };
 
+/*
 template<unsigned int digits10, typename T>
 struct residual_computer_bignum {
     using big_type=boost::multiprecision::number<boost::multiprecision::mpfr_float_backend<digits10, boost::multiprecision::allocate_stack> >;
@@ -404,6 +404,7 @@ template<unsigned int digits10, unsigned int Dim, typename T>
 struct make_big_type<digits10, phys_tools::autodiff::FD<Dim, T> > {
     using big_type=phys_tools::autodiff::FD<Dim, boost::multiprecision::number<boost::multiprecision::mpfr_float_backend<digits10, boost::multiprecision::allocate_stack> > >;
 };
+*/
 
 // compute log(1+x) without losing precision for small values of x
 template<typename T>
@@ -456,6 +457,7 @@ T LogDiff(T const & a, T const & b)
     return res;
 };
 
+/*
 template<typename T>
 struct thorsten_fast {
     typedef typename make_big_type<16, T>::big_type big_type;
@@ -536,6 +538,7 @@ struct thorsten_fast {
         return result;
     }
 };
+*/
 
 template<typename T>
 struct contour_integral {
