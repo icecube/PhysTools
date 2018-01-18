@@ -660,7 +660,11 @@ namespace likelihood{
             T one(1);
             T zero(0);
             T L(0);
-            T w = accumulate(raw_w.begin(), raw_w.end(), zero, std::plus<T>()) / kmc;
+            T w_sum = accumulate(raw_w.begin(), raw_w.end(), zero, std::plus<T>());
+            //T w = accumulate(raw_w.begin(), raw_w.end(), zero, std::plus<T>()) / kmc;
+            if(w_sum == zero) {
+                return T(-std::numeric_limits<double>::infinity());
+            }
             
             L += 
                 (
@@ -676,14 +680,19 @@ namespace likelihood{
                 (
                  kmc
                  *
-                 log(w)
+                 //(log(w))
+                 (
+                  log(w_sum)
+                  - 
+                  log(kmc)
+                  )
                  + 
                  (k+kmc)
                  *
                  LogOnePlusX(
-                     one
+                     kmc
                      /
-                     w
+                     w_sum
                      )
                  );
 
