@@ -663,7 +663,12 @@ namespace likelihood{
             T w_sum = accumulate(raw_w.begin(), raw_w.end(), zero, std::plus<T>());
             //T w = accumulate(raw_w.begin(), raw_w.end(), zero, std::plus<T>()) / kmc;
             if(w_sum == zero) {
-                return T(-std::numeric_limits<double>::infinity());
+                if(k == 0) {
+                    return T(0);
+                }
+                else {
+                    return T(-std::numeric_limits<double>::infinity());
+                }
             }
             
             L += 
