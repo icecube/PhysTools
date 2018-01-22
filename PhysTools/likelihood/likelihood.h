@@ -50,9 +50,9 @@ namespace likelihood{
 		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
 			T lambda=std::accumulate(simulationWeights.begin(),simulationWeights.end(),T(0),std::plus<T>());
 			if(lambda==0)
-				return(0);
+                return(dataCount==0?0:-std::numeric_limits<T>::max());
+			//return(0);
 			//would this be more correct?
-			//return(dataCount==0?0:-std::numeric_limits<T>::max());
 			T sum(lambda);
 			sum+=lgamma(dataCount+1);
 			return(dataCount*log(lambda)-sum);
