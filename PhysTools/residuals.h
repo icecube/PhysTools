@@ -6,7 +6,11 @@
 #include <algorithm>
 #include <numeric>
 #include <random>
-#include <stdexcept>
+#ifdef __APPLE__
+    #include <xmmintrin.h>
+#elif __linux__
+    #include <stdexcept>
+#endif
 #include <type_traits>
 #include <vector>
 #include <deque>
@@ -111,7 +115,11 @@ struct almost_equal<phys_tools::autodiff::FD<Dim, T> > {
 template<typename T>
 struct residual_computer {
     void operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m, std::vector<T>& res) {
-        feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#ifdef __APPLE__
+            MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
+#elif __linux__
+            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
         //std::cout << std::setprecision(16);
         std::cout << "residual_computer" << std::endl;
         // Useful things to precompute
@@ -308,7 +316,11 @@ struct residual_computer {
 
         // Clean up the nasty stuff we defined
 		#undef c
-        fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#ifdef __APPLE__
+                MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#elif __linux__
+                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
         //return c;
     }
 };
@@ -543,7 +555,11 @@ struct thorsten_fast {
 template<typename T>
 struct contour_integral {
     T operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m) {
-        feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#ifdef __APPLE__
+            MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
+#elif __linux__
+            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
         const unsigned int M = m.size();
         const unsigned int max_m = *std::max_element(m.begin(), m.end());
         std::vector<T> c;
@@ -556,7 +572,11 @@ struct contour_integral {
             residual_sum += c(k,0);
         }
         #undef c
-        fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#ifdef __APPLE__
+                MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#elif __linux__
+                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
         return residual_sum;
     }
 };
