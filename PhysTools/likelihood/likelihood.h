@@ -1442,10 +1442,10 @@ namespace likelihood{
 		
 		template<typename DataType>
 		DataType evaluateLikelihood(const std::vector<DataType>& rawParams, bool includePriors=true) const{
-            for(auto i: rawParams) {
-                std::cout << i << ", ";
-            }
-            std::cout << std::endl;
+            //for(auto i: rawParams) {
+            //    std::cout << i << ", ";
+            //}
+            //std::cout << std::endl;
 			std::vector<DataType> params;
 			bool scanDNuisance=false;
 			//TODO: fix this once there are discrete variations
@@ -1492,7 +1492,7 @@ namespace likelihood{
 					lastBestDiscreteIndex=dn;
 				}
 			}
-			std::cout << " llh: " << bestLLH << std::endl;
+			//std::cout << " llh: " << bestLLH << std::endl;
 			return(bestLLH);
 		}
 		
