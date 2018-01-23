@@ -5,7 +5,16 @@
 #include <functional>
 #include <numeric>
 #include <random>
+
+#ifdef __linux__
 #include <stdexcept>
+#endif
+
+#ifdef __APPLE__
+#include <xmmintrin.h>
+#endif
+
+
 #include <type_traits>
 #include <vector>
 #include <deque>
@@ -559,7 +568,13 @@ namespace likelihood{
     struct thorstenLikelihood {
         template<typename T>
         T operator()(double k, const std::vector<T>& raw_w) const {
+#ifdef __linux__
             feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
+#ifdef __APPLE__
+            MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
+#endif
+            
             unsigned int count = 1;
             std::vector<unsigned int> kmc;
             std::vector<T> w;
@@ -637,11 +652,21 @@ namespace likelihood{
                 std::cout << "L += " << lf << std::endl;
                 std::cout << "L = " << L << std::endl;
                 
+#ifdef __linux__
                 fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
+#ifdef __APPLE__
+                MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#endif
                 return L;
             }
             else {
+#ifdef __linux__
                 fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
+#ifdef __APPLE__
+                MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#endif
                 return T(0);
             }
         }
@@ -650,10 +675,20 @@ namespace likelihood{
     struct thorstenSimpleLikelihood {
         template<typename T>
         T operator()(double k, const std::vector<T>& raw_w) const {
+#ifdef __linux__
             feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
+#ifdef __APPLE__
+            MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
+#endif
             double kmc = raw_w.size();
             if(kmc <= 0) {
+#ifdef __linux__
                 fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
+#ifdef __APPLE__
+                MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#endif
                 return T(0);
             }
 
@@ -701,7 +736,12 @@ namespace likelihood{
                      )
                  );
 
+#ifdef __linux__
             fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
+#ifdef __APPLE__
+            MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#endif
 
             return L;
         }
@@ -989,6 +1029,7 @@ namespace likelihood{
 						std::cout << ' ' << w;
 					std::cout << ']' << std::endl;
 				}*/
+                //std::cout << "contribution: " << contribution << std::endl;
 				return(contribution);
 			};
 			auto likelihoodContributionNoObs=[&weighter,&observation,&likelihoodFunction,&printMtx](typename HistogramType::const_iterator it)->DataType{
@@ -1019,6 +1060,7 @@ namespace likelihood{
 							std::cout << ' ' << w;
 						std::cout << ']' << std::endl;
 					}*/
+                    //std::cout << "noobs contribution: " << contribution << std::endl;
 					return(contribution);
 				}
 				/*{
@@ -1111,6 +1153,7 @@ namespace likelihood{
 				auto contribution=future.get();
 				llh+=contribution;
 			}
+            std::cout << "LLH: " << llh << std::cout;
 			return(llh);
 		}
     
@@ -1399,6 +1442,10 @@ namespace likelihood{
 		
 		template<typename DataType>
 		DataType evaluateLikelihood(const std::vector<DataType>& rawParams, bool includePriors=true) const{
+            for(auto i: rawParams) {
+                std::cout << i << ", ";
+            }
+            std::cout << std::endl;
 			std::vector<DataType> params;
 			bool scanDNuisance=false;
 			//TODO: fix this once there are discrete variations
@@ -1445,7 +1492,7 @@ namespace likelihood{
 					lastBestDiscreteIndex=dn;
 				}
 			}
-			//std::cout << " llh: " << bestLLH << std::endl;
+			std::cout << " llh: " << bestLLH << std::endl;
 			return(bestLLH);
 		}
 		
