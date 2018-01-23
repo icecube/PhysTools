@@ -625,7 +625,7 @@ namespace likelihood{
                 //T L(static_cast<T>(residuals::thorsten_fast<T>()(w,s,k)));
                 //std::cout << "L = " << L << std::endl;
                 T L(0);
-                std::cout << "L = " << L << std::endl;
+                //std::cout << "L = " << L << std::endl;
                 const std::vector<T> z(1, T(0));
                 const std::vector<unsigned int> n(1, (unsigned int)(k+kmc_tot-1));
                 std::vector<T> s(w.size());
@@ -635,18 +635,18 @@ namespace likelihood{
                     L -= f;
                 }
                 L *= kmc_tot;
-                std::cout << "L *= " << kmc_tot << std::endl;
-                std::cout << "L = " << L << std::endl;
+                //std::cout << "L *= " << kmc_tot << std::endl;
+                //std::cout << "L = " << L << std::endl;
                 const std::vector<unsigned int>& m = kmc;
                 //T f = static_cast<T>(residuals::contour_integral_bignum<1000, T>()(z, n, s, m));
                 T f = residuals::contour_integral<T>()(z, n, s, m);
                 //T f = 1;
-                std::cout << "f = " << f << std::endl;
+                //std::cout << "f = " << f << std::endl;
                 assert(f > 0);
                 T lf = log(f);
                 L += lf;
-                std::cout << "L += " << lf << std::endl;
-                std::cout << "L = " << L << std::endl;
+                //std::cout << "L += " << lf << std::endl;
+                //std::cout << "L = " << L << std::endl;
                 
 #ifdef __APPLE__
                 _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
@@ -1144,7 +1144,7 @@ namespace likelihood{
 				auto contribution=future.get();
 				llh+=contribution;
 			}
-            std::cout << "LLH: " << llh << std::cout;
+            //std::cout << "LLH: " << llh << std::endl;
 			return(llh);
 		}
     
