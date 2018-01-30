@@ -668,13 +668,14 @@ namespace likelihood{
 
     struct thorstenSimpleLikelihood {
         template<typename T>
-        T operator()(double k, const std::vector<T>& raw_w) const {
+        T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
 #ifdef __APPLE__
             _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
 #elif __linux__
             feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
 #endif
-            double kmc = raw_w.size();
+            //double kmc = raw_w.size();
+            double kmc = n_events;
             if(kmc <= 0) {
 #ifdef __APPLE__
                 _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
@@ -982,6 +983,7 @@ namespace likelihood{
 				double observationAmount=std::accumulate(obs.begin(),obs.end(),0.0,dataWeightAccumulator);
 				
 				std::vector<DataType> expectationWeights;
+                int n_events=0;
 				typename HistogramType::const_iterator expIt=simulation.findBinIterator(it);
 				if(expIt!=simulation.end()){
 					/*{
@@ -994,6 +996,7 @@ namespace likelihood{
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*expIt).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*expIt).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
+                        n_events += e.num_events;
 						expectationWeights.push_back(weighter(e));
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 							std::lock_guard<std::mutex> lck(printMtx);
@@ -1006,7 +1009,7 @@ namespace likelihood{
 
                 std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
 				
-				auto contribution=likelihoodFunction(observationAmount,expectationWeights);
+				auto contribution=likelihoodFunction(observationAmount,expectationWeights,n_events);
 				/*{
 					std::lock_guard<std::mutex> lck(printMtx);
 					DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
@@ -1029,15 +1032,17 @@ namespace likelihood{
 				//only proceed if this bin does not exist in the observation
 				if(obsIt==observation.end()){
 					std::vector<DataType> expectationWeights;
+                    int n_events=0;
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*it).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*it).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*it)) {
 						expectationWeights.push_back(weighter(e));
+                        n_events += e.num_events;
                     }
 					
                     std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
 	
-					auto contribution=likelihoodFunction(0,expectationWeights);
+					auto contribution=likelihoodFunction(0,expectationWeights,n_events);
 					/*{
 						std::lock_guard<std::mutex> lck(printMtx);
 						DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
