@@ -53,7 +53,7 @@ namespace likelihood{
 	
 	struct poissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights, int n_events) const{
 			T lambda=std::accumulate(simulationWeights.begin(),simulationWeights.end(),T(0),std::plus<T>());
 			if(lambda==0)
                 return(dataCount==0?0:-std::numeric_limits<T>::max());
@@ -67,7 +67,7 @@ namespace likelihood{
 	
 	struct dimaLikelihood{
 		template<typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights, int n_events) const{
 			//std::cout << "   " << dataCount << " observed events compared to " << simulationWeights.size() << " simulated events" << '\n';
 			using std::abs; //we want access to std::abs for things like doubles so that we can also find things under the same name via ADL
 			
@@ -179,7 +179,7 @@ namespace likelihood{
 	
 	struct chi2Likelihood{
 		template<typename T>
-		T operator()(unsigned int dataCount, const std::vector<T>& expectationWeights) const{
+		T operator()(unsigned int dataCount, const std::vector<T>& expectationWeights, int n_events) const{
 			T exp=std::accumulate(expectationWeights.begin(),expectationWeights.end(),T(0),std::plus<T>());
 			if(exp>0){
 				T diff=dataCount-exp;
@@ -191,7 +191,7 @@ namespace likelihood{
 	
 	struct saturatedPoissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
+		T operator()(double dataCount, const std::vector<T>& simulationWeights, int n_events) const{
 			if(dataCount==0)
 				return(0);
 			T sum(dataCount);
@@ -564,7 +564,7 @@ namespace likelihood{
     
     struct thorstenLikelihood {
         template<typename T>
-        T operator()(double k, const std::vector<T>& raw_w) const {
+        T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
 #ifdef __APPLE__
             _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
 #elif __linux__
@@ -983,6 +983,7 @@ namespace likelihood{
 				double observationAmount=std::accumulate(obs.begin(),obs.end(),0.0,dataWeightAccumulator);
 				
 				std::vector<DataType> expectationWeights;
+                DataType w;
                 int n_events=0;
 				typename HistogramType::const_iterator expIt=simulation.findBinIterator(it);
 				if(expIt!=simulation.end()){
@@ -996,8 +997,10 @@ namespace likelihood{
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*expIt).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*expIt).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
-                        n_events += e.num_events;
-						expectationWeights.push_back(weighter(e));
+                        w = weighter(e);
+                        if(w != 0)
+                            n_events += e.num_events;
+						expectationWeights.push_back(w);
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 							std::lock_guard<std::mutex> lck(printMtx);
 							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
@@ -1032,12 +1035,15 @@ namespace likelihood{
 				//only proceed if this bin does not exist in the observation
 				if(obsIt==observation.end()){
 					std::vector<DataType> expectationWeights;
+                    DataType w;
                     int n_events=0;
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*it).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*it).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*it)) {
-						expectationWeights.push_back(weighter(e));
-                        n_events += e.num_events;
+                        w = weighter(e);
+                        if(w != 0)
+                            n_events += e.num_events;
+						expectationWeights.push_back(w);
                     }
 					
                     std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
