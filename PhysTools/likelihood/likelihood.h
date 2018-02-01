@@ -850,7 +850,7 @@ namespace likelihood{
 			DataType operator()(const Storage& priors, const std::vector<DataType>& params) const{
 				if(std::isnan(params[size-index]))
 					return(std::numeric_limits<DataType>::quiet_NaN());
-				return(std::get<size-index>(priors)(params[size-index])*priorEvaluator<DataType,index-1>()(priors,params));
+				return(std::get<size-index>(priors)(params[size-index])+priorEvaluator<DataType,index-1>()(priors,params));
 			}
 		};
 		
@@ -1473,19 +1473,20 @@ namespace likelihood{
 			DataType cPrior=continuousPrior.template operator()<DataType>(continuousParams);
 			
 			//bail out early if we're in a disallowed part of the parameter space
-			if(cPrior<=0 || std::isnan(cPrior)){
+			//if(cPrior<=0 || std::isnan(cPrior)){
+			if(std::isnan(cPrior)){
 				//std::cout << "Out-of-bounds prior prob" << std::endl;
 				return(-std::numeric_limits<DataType>::max());
 			}
 			//std::cout << "(prior=" << cPrior << ") ";
-			cPrior=log(cPrior); //convert to log(P) for rest of calculation
+			//cPrior=log(cPrior); //convert to log(P) for rest of calculation
 			
 			//compute the actual llh for every necessary discrete nuisance index
 			//(of which there will only be one unless we've been called by a minimizer)
 			//and keep the best value
 			DataType bestLLH=-std::numeric_limits<DataType>::max();
 			for(size_t dn=minDN; dn<maxDN; dn++){
-				DataType llh=(includePriors?cPrior+log(discretePrior[dn]):0);
+				DataType llh=(includePriors?cPrior+discretePrior[dn]:0);
 				params.back()=dn;
 				llh+=evaluateLikelihood<DataType>(simWeightC(continuousParams),simulations[dn]);
 				
@@ -1672,8 +1673,8 @@ namespace likelihood{
 		template<typename DataType>
 		DataType operator()(DataType x) const{
 			if(x<min || x>max)
-				return(DataType(0.0));
-			return(DataType(1.0));
+				return(DataType(-std::numeric_limits<double>::infinity()));
+			return(DataType(0.0));
 		}
 	};
 	
@@ -1690,7 +1691,7 @@ namespace likelihood{
 		template<typename DataType>
 		DataType operator()(DataType x) const{
 			DataType z=(x-mean)/stddev;
-			return(norm*exp(-z*z/2));
+			return(log(norm)-z*z/2);
 		}
 	};
 	
@@ -1704,7 +1705,7 @@ namespace likelihood{
 		
 		template<typename DataType>
 		DataType operator()(DataType x) const{
-			return(limits(x)*prior(x));
+			return(limits(x)+prior(x));
 		}
 	};
 	
