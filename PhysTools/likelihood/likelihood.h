@@ -1,6 +1,8 @@
 #ifndef LF_LIKELIHOOD_H
 #define LF_LIKELIHOOD_H
 
+#define BOOST_RESULT_OF_USE_DECLTYPE
+
 #include <cmath>
 #include <functional>
 #include <numeric>
@@ -18,7 +20,6 @@
 #include <cfenv>
 
 #include <boost/math/constants/constants.hpp>
-
 #include <boost/mpl/if.hpp>
 
 #include "../lbfgsb/lbfgsb.h"
@@ -48,6 +49,27 @@ namespace likelihood{
 	struct ensure_reference_wrapper<std::reference_wrapper<T>>{
 		using type=typename std::reference_wrapper<T>;
 	};
+
+    template <class InIt>
+    typename std::iterator_traits<InIt>::value_type accumulate(InIt begin, InIt end) {
+        typedef typename std::iterator_traits<InIt>::value_type real;
+        real sum = real(0);
+        real running_error = real(0);
+        real temp;
+        real difference;
+
+        for (; begin != end; ++begin) {
+            difference = *begin;
+            difference -= running_error;
+            temp = sum;
+            temp += difference;
+            running_error = temp;
+            running_error -= sum;
+            running_error -= difference;
+            sum = std::move(temp);
+        }
+        return sum;
+    };
     
 	//Frequently used likelihood functions
 	
@@ -554,6 +576,28 @@ namespace likelihood{
     };
 
     template<typename T>
+    T LogOneMinusX(T x)
+    {
+        if (x <= -1.0)
+        {
+            std::stringstream os;
+            os << "Invalid input argument (" << x 
+               << "); must be greater than -1.0";
+            throw std::invalid_argument( os.str() );
+        }
+
+        if (fabs(x) > 1e-4)
+        {
+            // x is large enough that the obvious evaluation is OK
+            return log(1.0 - x);
+        }
+
+        // Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
+        // Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
+        return -x-pow(x,2.0)/2.0-pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+    };
+
+    template<typename T>
     T SFromW(T w) {
         if(fabs(w) >= 1e-4) {
             return 1.0 / (1.0+1.0/w);
@@ -562,6 +606,245 @@ namespace likelihood{
         return w - pow(w, 2.0) + pow(w, 3.0) - pow(w, 4.0) + pow(w, 5.0);
     };
     
+    template<class T, class InputItA, class InputItB>
+    T LogSumExp(InputItA a_first, InputItA a_last, InputItB b_first, InputItB b_last) {
+        assert(std::distance(a_first, a_last) == std::distance(b_first, b_last));
+        T zero(0);
+        T minf(-std::numeric_limits<double>::infinity());
+        std::vector<T> a_copy(a_first, a_last);
+        if(a_copy.size() == 1)
+            return T(*a_first + log(*b_first));
+        auto a_it = a_copy.begin();
+        InputItB b_it = b_first;
+        for(; a_it != a_copy.end() && b_it != b_last; ++a_it, ++b_it) {
+            if(*b_it == 0)
+                *a_it = minf;
+        }
+        T a_max = *std::max_element(a_copy.begin(), a_copy.end());
+        a_it = a_copy.begin();
+        b_it = b_first;
+        for(; a_it != a_copy.end() && b_it != b_last; ++a_it, ++b_it) {
+            *a_it = *b_it * exp(*a_it - a_max);
+        }
+        return a_max + log(accumulate(a_copy.begin(), a_copy.end()));
+    }
+    /*
+    template<typename T>
+    T LogSumExp(const & std::vector<T> a, const & std::vector<T> b) {
+        assert(a.size() == b.size());
+        T zero(0);
+        T minf(-std::numeric_limits<double>::infinity());
+        std::vector<T> a_copy(a);
+        for(unsigned int i=0; i<a.size(); ++i) {
+            if(b[i] == 0)
+                a_copy[i] = minf;
+        }
+        T a_max = std::max_element(a.begin(), a.end());
+        for(unsigned int i=0; i<a.size(); ++i) {
+            a_copy[i] = b[i]*exp(a_copy[i] - a_max[i]);
+        }
+        return a_max + log(accumulate(a_copy.begin(), a_copy.end(), zero, std::plus<T>()));
+    }*/
+
+    template<class T, class InputIt>
+    T LogSumExp(InputIt first, InputIt last) {
+        T zero(0);
+        T minf(-std::numeric_limits<double>::infinity());
+        std::vector<T> a_copy(first, last);
+        if(a_copy.size() == 1)
+            return a_copy[0];
+        T a_max = *std::max_element(a_copy.begin(), a_copy.end());
+        for(auto it = a_copy.begin(); it !=a_copy.end(); ++it) {
+            *it = exp(*it - a_max);
+        }
+        T val = accumulate(a_copy.begin(), a_copy.end());
+        return a_max + log(val);
+    }
+    /*
+    template<typename T>
+    T LogSumExp(const & std::vector<T> a) {
+        T zero(0);
+        T minf(-std::numeric_limits<double>::infinity());
+        std::vector<T> a_copy(a);
+        T a_max = std::max_element(a.begin(), a.end());
+        for(unsigned int i=0; i<a.size(); ++i) {
+            a_copy[i] = exp(a_copy[i] - a_max[i]);
+        }
+        return a_max + log(accumulate(a_copy.begin(), a_copy.end(), zero, std::plus<T>()));
+    }*/
+
+    template<typename U>
+    struct PhysToolsCast {
+        template<typename T>
+        struct temp {
+            U operator()(T val) {
+                return static_cast<U>(val);
+            }
+        };
+
+        template<unsigned int Dim, typename T>
+        struct temp<phys_tools::autodiff::FD<Dim, T>> {
+            using result_type=phys_tools::autodiff::FD<Dim, T>;
+            U operator()(result_type val) {
+                return static_cast<U>(val.value());
+            }
+        };
+
+        template<typename T>
+        U operator()(T val) {
+            return temp<T>()(val);
+        }
+    };
+/*
+    template<typename U, typename T>
+    struct PhysToolsCast {
+        U operator()(T val) {
+            return static_cast<U>(val.value());
+        }
+    };
+
+    template<typename U, unsigned int Dim, typename T>
+    struct PhysToolsCast<U, phys_tools::autodiff::FD<Dim, T>> {
+        using result_type=phys_tools::autodiff::FD<Dim, T>;
+        U operator()(result_type val) {
+            return static_cast<U>(val.value());
+        }
+    };
+*/
+
+    struct thorstenLikelihood {
+        template<typename T>
+        T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
+#ifdef __APPLE__
+            //_MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
+            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW);
+#elif __linux__
+            //feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
+#endif
+
+            double log_percentage = log(0.99);
+
+            double prior_factor = 0;
+
+            unsigned int count = 1;
+            std::vector<unsigned int> kmc;
+            std::vector<T> w;
+            
+            T zero(0);
+            T wN(std::numeric_limits<double>::infinity());
+            auto starting_it = raw_w.begin();
+            for(; starting_it!=raw_w.end(); ++starting_it) {
+                if(zero < *starting_it) {
+                    break;
+                }
+            }
+
+            // Get the unique weights and their counts
+            if(starting_it != raw_w.end()) {
+                T wi(*starting_it);
+                wN = wi;
+                for(auto it=starting_it+1; it!=raw_w.end(); ++it) {
+                    if(*it != wi) {
+                        w.push_back(wi);
+                        wi = *it;
+                        kmc.push_back(count);
+                        count = 0;
+                        if(wi < wN) {
+                            wN = wi;
+                        }
+                    }
+                    ++count;
+                }
+                if(count >= 1) {
+                    w.push_back(wi);
+                    kmc.push_back(count);
+                    count = 0;
+                }
+            }
+
+            double kmcs = std::accumulate(kmc.begin(), kmc.end(), (unsigned int)(0), std::plus<unsigned int>()) + prior_factor;
+            
+            std::vector<T> lgammak;
+            std::vector<T> ldelta = {T(0)};
+            
+            auto eta_gen = boost::adaptors::transform(w, [&](T ww){return LogOneMinusX(wN / ww);});
+            
+            std::vector<T> eta(eta_gen.begin()+1, eta_gen.end());
+
+            double alpha_factor = prior_factor / double(w.size());
+
+            auto alpha_gen = boost::adaptors::transform(kmc, [&](unsigned int kmci)->double{return alpha_factor + kmci;});
+
+            std::vector<double> alpha(alpha_gen.begin()+1, alpha_gen.end());
+
+            T lwN = log(wN);
+            auto lC_gen = boost::adaptors::transform(boost::irange((unsigned int)0, (unsigned int)w.size()), [&](unsigned int i)->T{return (lwN - log(w[i]))*alpha_gen[i];});
+            //auto lC_gen = boost::adaptors::transform(w, alpha, [&](T wi, double alphai)->T{return (lwN - log(wi))*alphai;});
+
+            T lC = accumulate(lC_gen.begin(), lC_gen.end());
+
+            std::function<T(unsigned int)> get_log_gamma = [&] (unsigned int i)->T{
+                std::function<double(double)> b_func([&](double kmci)->double{return kmci/double(i);});
+                std::function<T(T)> a_func([&](T e)->T{return e*i;});
+                auto b_gen = boost::adaptors::transform(alpha, b_func);
+                auto a_gen = boost::adaptors::transform(eta, a_func);
+                return LogSumExp<T>(a_gen.begin(), a_gen.end(), b_gen.begin(), b_gen.end());
+            };
+            
+            std::function<void()> gen_next_log_delta = [&] ()->void{
+                lgammak.push_back(get_log_gamma(lgammak.size()+1));
+                unsigned int i = lgammak.size();
+                std::function<T(unsigned int)> get_lg_plus_li = [&](unsigned int j)->T{return lgammak[j]+log(j+1);};
+                auto lg_plus_li = boost::adaptors::transform(boost::irange((unsigned int)(0), (unsigned int)(i)), get_lg_plus_li);
+                unsigned int ldelta_size = ldelta.size();
+                std::function<T(unsigned int)> get_ld_plus_lg_plus_li = [&](unsigned int i)->T{return ldelta[ldelta_size-i-1]+lg_plus_li[i];};
+                auto ld_plus_lg_plus_li = boost::adaptors::transform(boost::irange((unsigned int)0, ldelta_size), get_ld_plus_lg_plus_li);
+                T next_ldelta = LogSumExp<T>(ld_plus_lg_plus_li.begin(), ld_plus_lg_plus_li.end()) - log(i);
+                ldelta.push_back(next_ldelta);
+            };
+
+            std::function<double()> get_log_percentage = [&] ()->double{
+                auto ldelta_gen = boost::adaptors::transform(ldelta, [&](T delta)->double{return PhysToolsCast<double>()(delta);});
+                double ldelta_sum = LogSumExp<double>(ldelta_gen.begin(), ldelta_gen.end());
+                double lC_double = PhysToolsCast<double>()(lC);
+                double index = ldelta_sum + lC_double;
+                std::cout << index << std::endl;
+                return index;
+            };
+
+            while(get_log_percentage() < log_percentage) {
+                gen_next_log_delta();
+            }
+
+            std::vector<T> terms(5);
+
+            auto log_sum_terms_gen = boost::adaptors::transform(boost::irange((unsigned int)0, (unsigned int)ldelta.size()), [&](unsigned int i)->T{
+                    terms[0] = ldelta[i];
+                    terms[1] = lgamma(k+i+kmcs);
+                    terms[2] = -i*lwN;
+                    terms[3] = -lgamma(i + kmcs);
+                    terms[4] = -i*LogOnePlusX(1.0/wN);
+                    return accumulate(terms.begin(), terms.end());});
+
+            T delta_sum = LogSumExp<T>(log_sum_terms_gen.begin(), log_sum_terms_gen.end());
+
+            terms[0] = lC;
+            terms[1] = -kmcs*lwN;
+            terms[2] = -lgamma(1+k);
+            terms[3] = -(k+kmcs)*LogOnePlusX(1.0/wN);
+            terms[4] = delta_sum;
+
+            return accumulate(terms.begin(), terms.end());
+
+#ifdef __APPLE__
+            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#elif __linux__
+            fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
+        }
+    };
+/* 
     struct thorstenLikelihood {
         template<typename T>
         T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
@@ -575,7 +858,6 @@ namespace likelihood{
             std::vector<unsigned int> kmc;
             std::vector<T> w;
 
-            /*
             std::cout << "RAW WEIGHTS BEGIN" << std::endl;
 
             for(unsigned int i=0; i<raw_w.size(); ++i) {
@@ -583,7 +865,6 @@ namespace likelihood{
             
             }
             std::cout << "RAW WEIGHTS END" << std::endl;
-            */
 
             T zero(0);
             auto starting_it = raw_w.begin();
@@ -638,8 +919,8 @@ namespace likelihood{
                 //std::cout << "L *= " << kmc_tot << std::endl;
                 //std::cout << "L = " << L << std::endl;
                 const std::vector<unsigned int>& m = kmc;
-                //T f = static_cast<T>(residuals::contour_integral_bignum<1000, T>()(z, n, s, m));
-                T f = residuals::contour_integral<T>()(z, n, s, m);
+                T f = static_cast<T>(residuals::contour_integral_bignum<10000, T>()(z, n, s, m));
+                //T f = residuals::contour_integral<T>()(z, n, s, m);
                 //T f = 1;
                 //std::cout << "f = " << f << std::endl;
                 assert(f > 0);
@@ -665,16 +946,29 @@ namespace likelihood{
             }
         }
     };
+*/
 
-    struct thorstenSimpleLikelihood {
+    struct gammaPriorPoissonLikelihood {
         template<typename T>
-        T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
+        T operator()(double k, T const & alpha, T const & beta) {
+            std::vector<T> items(5);
+            items[0] = alpha*log(beta);
+            items[1] = lgamma(k+alpha);
+            items[2] = -lgamma(k+1);
+            items[3] = -(k+alpha)*LogOnePlusX(beta);
+            items[4] = -lgamma(alpha);
+            return accumulate(items.begin(), items.end());
+        }
+    };
+
+    struct thorstenEqualWeightsLikelihood {
+        template<typename T>
+        T operator()(double k, int n_events, T const & w_sum, T const & w2_sum) const {
 #ifdef __APPLE__
             _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
 #elif __linux__
             feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
 #endif
-            //double kmc = raw_w.size();
             double kmc = n_events;
             if(kmc <= 0) {
 #ifdef __APPLE__
@@ -687,9 +981,6 @@ namespace likelihood{
 
             T one(1);
             T zero(0);
-            T L(0);
-            T w_sum = accumulate(raw_w.begin(), raw_w.end(), zero, std::plus<T>());
-            //T w = accumulate(raw_w.begin(), raw_w.end(), zero, std::plus<T>()) / kmc;
             if(w_sum == zero) {
                 if(k == 0) {
                     return T(0);
@@ -698,43 +989,59 @@ namespace likelihood{
                     return T(-std::numeric_limits<double>::infinity());
                 }
             }
-            
-            L += 
-                (
-                 lgamma(k+kmc)
-                 - 
-                 (
-                  lgamma(kmc)
-                  + 
-                  lgamma(k+1)
-                  )
-                 );
-            L -= 
-                (
-                 kmc
-                 *
-                 //(log(w))
-                 (
-                  log(w_sum)
-                  - 
-                  log(kmc)
-                  )
-                 + 
-                 (k+kmc)
-                 *
-                 LogOnePlusX(
-                     kmc
-                     /
-                     w_sum
-                     )
-                 );
+
+            T s = sqrt(w2_sum);
+
+            T alpha = kmc;
+            T beta = kmc / s;
+            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
 
 #ifdef __APPLE__
             _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
 #elif __linux__
             fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
 #endif
+            return L;
+        }
+    };
+    
+    struct SAYLikelihood {
+        template<typename T>
+        T operator()(double k, T const & w_sum, T const & w2_sum) const {
+#ifdef __APPLE__
+            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
+#elif __linux__
+            feenableexcept(FE_DIVBYZERO | FE_INVALID);
+#endif
+            if(w_sum <= 0) {
+#ifdef __APPLE__
+                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#elif __linux__
+                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
+                return(k==0?0:-std::numeric_limits<T>::max());
+            }
 
+            T one(1);
+            T zero(0);
+            if(w_sum == zero) {
+                if(k == 0) {
+                    return T(0);
+                }
+                else {
+                    return T(-std::numeric_limits<double>::infinity());
+                }
+            }
+
+            T alpha = pow(w_sum, T(2))/w2_sum;
+            T beta = w_sum/w2_sum;
+            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
+
+#ifdef __APPLE__
+            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
+#elif __linux__
+            fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
             return L;
         }
     };
@@ -983,6 +1290,7 @@ namespace likelihood{
 				double observationAmount=std::accumulate(obs.begin(),obs.end(),0.0,dataWeightAccumulator);
 				
 				std::vector<DataType> expectationWeights;
+                std::vector<DataType> expectationSqWeights;
                 DataType w;
                 int n_events=0;
 				typename HistogramType::const_iterator expIt=simulation.findBinIterator(it);
@@ -996,11 +1304,13 @@ namespace likelihood{
 					}*/
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*expIt).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*expIt).size());
+					expectationSqWeights.reserve(((entryStoringBin<Event>)*expIt).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
                         w = weighter(e);
                         if(w != 0)
                             n_events += e.num_events;
 						expectationWeights.push_back(w);
+						expectationSqWeights.push_back(pow(w, DataType(2.0))*e.num_events);
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 							std::lock_guard<std::mutex> lck(printMtx);
 							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
@@ -1010,9 +1320,9 @@ namespace likelihood{
 					}
 				}
 
-                std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
-				
-				auto contribution=likelihoodFunction(observationAmount,expectationWeights,n_events);
+                //std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
+                
+				auto contribution=likelihoodFunction(observationAmount,accumulate(expectationWeights.begin(), expectationWeights.end()),accumulate(expectationSqWeights.begin(), expectationSqWeights.end()));
 				/*{
 					std::lock_guard<std::mutex> lck(printMtx);
 					DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
@@ -1035,20 +1345,24 @@ namespace likelihood{
 				//only proceed if this bin does not exist in the observation
 				if(obsIt==observation.end()){
 					std::vector<DataType> expectationWeights;
+					std::vector<DataType> expectationSqWeights;
                     DataType w;
                     int n_events=0;
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*it).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*it).size());
+					expectationSqWeights.reserve(((entryStoringBin<Event>)*it).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*it)) {
                         w = weighter(e);
                         if(w != 0)
                             n_events += e.num_events;
 						expectationWeights.push_back(w);
+					    expectationSqWeights.push_back(pow(w, DataType(2.0))*e.num_events);
                     }
 					
-                    std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
+                    //std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
 	
-					auto contribution=likelihoodFunction(0,expectationWeights,n_events);
+					//auto contribution=likelihoodFunction(0,expectationWeights,n_events);
+				    auto contribution=likelihoodFunction(0,accumulate(expectationWeights.begin(), expectationWeights.end()),accumulate(expectationSqWeights.begin(), expectationSqWeights.end()));
 					/*{
 						std::lock_guard<std::mutex> lck(printMtx);
 						DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));

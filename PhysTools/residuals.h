@@ -417,7 +417,6 @@ struct make_big_type<digits10, phys_tools::autodiff::FD<Dim, T> > {
     using big_type=phys_tools::autodiff::FD<Dim, boost::multiprecision::number<boost::multiprecision::mpfr_float_backend<digits10, boost::multiprecision::allocate_stack> > >;
 };
 */
-
 // compute log(1+x) without losing precision for small values of x
 template<typename T>
 T LogOnePlusX(T x)
