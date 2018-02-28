@@ -1708,7 +1708,10 @@ namespace std{
 	
 	template <unsigned int nVars, typename T>
 	bool isnan(const phys_tools::autodiff::FD<nVars,T>& f){
-		return(isnan(f.value()));
+        bool gradnan = false;
+		for(unsigned int i=0; i<nVars; i++)
+			gradnan |= isnan(f.derivative(i));
+		return(isnan(f.value()) || gradnan);
 	}
 }
 	
