@@ -1013,13 +1013,17 @@ namespace likelihood{
 #elif __linux__
             feenableexcept(FE_DIVBYZERO | FE_INVALID);
 #endif
-            if(w_sum <= 0) {
+            if(w_sum <= 0 || w2_sum < 0) {
 #ifdef __APPLE__
                 _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
 #elif __linux__
-                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+                //fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
 #endif
                 return(k==0?0:-std::numeric_limits<T>::max());
+            }
+
+            if(w2_sum == 0) {
+                return poissonLikelihood()(k, std::vector<T>{w_sum}, 1);
             }
 
             T one(1);
@@ -1040,7 +1044,7 @@ namespace likelihood{
 #ifdef __APPLE__
             _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
 #elif __linux__
-            fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+            //fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
 #endif
             return L;
         }
@@ -1292,6 +1296,7 @@ namespace likelihood{
 				std::vector<DataType> expectationWeights;
                 std::vector<DataType> expectationSqWeights;
                 DataType w;
+                DataType w2;
                 int n_events=0;
 				typename HistogramType::const_iterator expIt=simulation.findBinIterator(it);
 				if(expIt!=simulation.end()){
@@ -1307,13 +1312,28 @@ namespace likelihood{
 					expectationSqWeights.reserve(((entryStoringBin<Event>)*expIt).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
                         w = weighter(e);
-                        if(w != 0)
-                            n_events += e.num_events;
+                        if(w <= 0)
+                            continue;
+                        w2 = pow(w, DataType(2.0));
+                        if(w2 <= 0)
+                            continue;
+                        n_events += e.num_events;
 						expectationWeights.push_back(w);
-						expectationSqWeights.push_back(pow(w, DataType(2.0))*e.num_events);
+						expectationSqWeights.push_back(w2*e.num_events);
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 							std::lock_guard<std::mutex> lck(printMtx);
 							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
+							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
+						}
+						if(std::isnan(expectationSqWeights.back()) || expectationSqWeights.back()<0.0){
+							std::lock_guard<std::mutex> lck(printMtx);
+							std::cout << "Bad weightSq: " << expectationSqWeights.back() << "\nEvent:\n" << e << std::endl;
+							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
+							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
+						}
+						if(std::isnan(e.num_events) || e.num_events<0.0){
+							std::lock_guard<std::mutex> lck(printMtx);
+							std::cout << "Bad num_events: " << e.num_events << "\nEvent:\n" << e << std::endl;
 							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
 						}
 						//std::cout << "    " << expectationWeights.back() << std::endl;
