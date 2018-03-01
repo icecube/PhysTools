@@ -75,8 +75,7 @@ namespace likelihood{
 	
 	struct poissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights, int n_events) const{
-			T lambda=std::accumulate(simulationWeights.begin(),simulationWeights.end(),T(0),std::plus<T>());
+		T operator()(double dataCount, T const & lambda, T const & w2_sum) const{
 			if(lambda==0)
                 return(dataCount==0?0:-std::numeric_limits<T>::max());
 			//return(0);
