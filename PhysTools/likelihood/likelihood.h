@@ -1022,7 +1022,7 @@ namespace likelihood{
             }
 
             if(w2_sum == 0) {
-                return poissonLikelihood()(k, std::vector<T>{w_sum}, 1);
+                return poissonLikelihood()(k, w_sum, 0);
             }
 
             T one(1);
