@@ -963,18 +963,8 @@ namespace likelihood{
     struct thorstenEqualWeightsLikelihood {
         template<typename T>
         T operator()(double k, int n_events, T const & w_sum, T const & w2_sum) const {
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
-#elif __linux__
-            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
             double kmc = n_events;
             if(kmc <= 0) {
-#ifdef __APPLE__
-                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
                 return T(0);
             }
 
@@ -995,11 +985,6 @@ namespace likelihood{
             T beta = kmc / s;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
 
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-            fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
             return L;
         }
     };
@@ -1007,17 +992,7 @@ namespace likelihood{
     struct SAYLikelihood {
         template<typename T>
         T operator()(double k, T const & w_sum, T const & w2_sum) const {
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
-#elif __linux__
-            feenableexcept(FE_DIVBYZERO | FE_INVALID);
-#endif
             if(w_sum <= 0 || w2_sum < 0) {
-#ifdef __APPLE__
-                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-                //fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
                 if(k!=0) {
                     std::cout << "k = " << std::setprecision(16) << k << std::endl;
                     std::cout << "w_sum = " << std::setprecision(16) << w_sum << std::endl;
@@ -1046,11 +1021,6 @@ namespace likelihood{
             T beta = w_sum/w2_sum;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
 
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-            //fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
             return L;
         }
     };
