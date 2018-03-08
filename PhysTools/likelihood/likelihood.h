@@ -1018,6 +1018,12 @@ namespace likelihood{
 #elif __linux__
                 //fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
 #endif
+                if(k!=0) {
+                    std::cout << "k = " << std::setprecision(16) << k << std::endl;
+                    std::cout << "w_sum = " << std::setprecision(16) << w_sum << std::endl;
+                    std::cout << "w2_sum = " << std::setprecision(16) << w2_sum << std::endl;
+                    throw std::runtime_error("Your likelihood problem is ill-formed.");
+                }
                 return(k==0?0:-std::numeric_limits<T>::max());
             }
 
@@ -1341,7 +1347,27 @@ namespace likelihood{
 
                 //std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
                 
-				auto contribution=likelihoodFunction(observationAmount,accumulate(expectationWeights.begin(), expectationWeights.end()),accumulate(expectationSqWeights.begin(), expectationSqWeights.end()));
+                auto w_sum = accumulate(expectationWeights.begin(), expectationWeights.end());
+                auto w2_sum = accumulate(expectationSqWeights.begin(), expectationSqWeights.end());
+
+                if(observationAmount > 0 && w_sum <= 0) {
+                    std::cout << "BAD BIN" << std::endl;
+                    std::cout << "Printing weights" << std::endl;
+                    for(auto w : expectationWeights) {
+                        std::cout << w << std::endl;
+                    }
+                    std::cout << "Printing events" << std::endl;
+					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
+                        std::cout << e << std::endl;
+                    }
+                    std::cout << "Printing data" << std::endl;
+					for(auto e : obs) {
+                        std::cout << e << std::endl;
+                    }
+                }
+
+                auto contribution=likelihoodFunction(observationAmount,w_sum,w2_sum);
+
 				/*{
 					std::lock_guard<std::mutex> lck(printMtx);
 					DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
@@ -1377,7 +1403,7 @@ namespace likelihood{
 						expectationWeights.push_back(w);
 					    expectationSqWeights.push_back(pow(w, DataType(2.0))*e.num_events);
                     }
-					
+
                     //std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
 	
 					//auto contribution=likelihoodFunction(0,expectationWeights,n_events);
