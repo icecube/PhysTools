@@ -1039,6 +1039,13 @@ namespace likelihood{
 			assert(d==0);
 		}
 		
+		//allow assigning 'zero' values
+		entryStoringBin& operator=(double d){
+			assert(d==0);
+            data.clear();
+            return(*this);
+		}
+		
 		entryStoringBin& operator+=(const DataType& e){
 			data.push_back(e);
 			return(*this);
@@ -1076,6 +1083,9 @@ namespace likelihood{
 		bool empty() const{
 			return(data.empty());
 		}
+        void clear() {
+            data.clear();
+        }
 	};
 	
 } //namespace likelihood

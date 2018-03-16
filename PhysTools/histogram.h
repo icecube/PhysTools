@@ -474,9 +474,9 @@ namespace phys_tools{
 				modificationProxy():value(nullptr),scale(0.0){}
 				modificationProxy(const modificationProxy& other):value(other.value),scale(other.scale){}
 				operator StoreType() const{ return(*value*scale); }
-				const modificationProxy& operator=(StoreType v){ *value=v/scale; return(*this); }
-				const modificationProxy& operator+=(StoreType v){ *value+=v/scale; return(*this); }
-				const modificationProxy& operator-=(StoreType v){ *value-=v/scale; return(*this); }
+				const modificationProxy& operator=(StoreType v){ *value=v; return(*this); }
+				const modificationProxy& operator+=(StoreType v){ *value+=v; return(*this); }
+				const modificationProxy& operator-=(StoreType v){ *value-=v; return(*this); }
 				template<typename U>
 				const modificationProxy& operator*=(const U& v){ *value*=v; return(*this); }
 				template<typename U>
@@ -1351,9 +1351,9 @@ namespace phys_tools{
 			};
 			
 			///A bidirectional iterator
-			typedef iteratorTempl<histogram,modificationProxy,modificationProxy,modificationProxy*> iterator;
+			typedef iteratorTempl<histogram,modificationProxy,modificationProxy&,modificationProxy*> iterator;
 			///A const bidirectional iterator
-			typedef iteratorTempl<const histogram,StoreType,StoreType&,const StoreType*> const_iterator;
+			typedef iteratorTempl<const histogram,StoreType,const StoreType&,const StoreType*> const_iterator;
 			friend iterator;
 			friend const_iterator;
 			
