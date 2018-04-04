@@ -1299,12 +1299,11 @@ namespace likelihood{
 					expectationSqWeights.reserve(((entryStoringBin<Event>)*expIt).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
                         w = weighter(e);
-                        if(w <= 0)
+                        if(w < 0)
                             continue;
                         w2 = pow(w, DataType(2.0));
-                        if(w2 <= 0)
-                            continue;
-                        n_events += e.num_events;
+                        if(w > 0)
+                          n_events += e.num_events;
 						expectationWeights.push_back(w);
 						expectationSqWeights.push_back(w2*e.num_events);
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
