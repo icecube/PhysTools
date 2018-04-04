@@ -1005,8 +1005,6 @@ namespace likelihood{
             }
 
             if(w2_sum == 0) {
-                std::cout << "Zero error, should not be the case." << std::endl;
-                throw std::runtime_error("Should not be using this if you have no error");
                 return poissonLikelihood()(k, w_sum, w2_sum);
             }
 
@@ -1301,14 +1299,14 @@ namespace likelihood{
 					expectationSqWeights.reserve(((entryStoringBin<Event>)*expIt).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
                         w = weighter(e);
-                        if(w < 0)
+                        if(w <= 0)
                             continue;
                         w2 = pow(w, DataType(2.0));
-                        if(w > 0)
-                          n_events += e.num_events;
+                        if(w2 <= 0)
+                            continue;
+                        n_events += e.num_events;
 						expectationWeights.push_back(w);
 						expectationSqWeights.push_back(w2*e.num_events);
-                        /*
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 							std::lock_guard<std::mutex> lck(printMtx);
 							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
@@ -1325,7 +1323,6 @@ namespace likelihood{
 							std::cout << "Bad num_events: " << e.num_events << "\nEvent:\n" << e << std::endl;
 							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
 						}
-                        */
 						//std::cout << "    " << expectationWeights.back() << std::endl;
 					}
 				}
@@ -1336,7 +1333,6 @@ namespace likelihood{
                 auto w2_sum = accumulate(expectationSqWeights.begin(), expectationSqWeights.end());
 
                 if(observationAmount > 0 && w_sum <= 0 && expIt == simulation.end()) {
-                //if(observationAmount > 0 && w_sum <= 0) {
                     std::cout << "BAD BIN" << std::endl;
                     std::cout << "Printing weights" << std::endl;
                     for(auto w : expectationWeights) {
