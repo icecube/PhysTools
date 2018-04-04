@@ -1024,6 +1024,7 @@ namespace likelihood{
             T alpha = pow(w_sum, T(2))/w2_sum;
             T beta = w_sum/w2_sum;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
+
             return L;
         }
     };
@@ -1334,8 +1335,8 @@ namespace likelihood{
                 auto w_sum = accumulate(expectationWeights.begin(), expectationWeights.end());
                 auto w2_sum = accumulate(expectationSqWeights.begin(), expectationSqWeights.end());
 
-                //if(observationAmount > 0 && w_sum <= 0 && expIt == simulation.end()) {
-                if(observationAmount > 0 && w_sum <= 0) {
+                if(observationAmount > 0 && w_sum <= 0 && expIt == simulation.end()) {
+                //if(observationAmount > 0 && w_sum <= 0) {
                     std::cout << "BAD BIN" << std::endl;
                     std::cout << "Printing weights" << std::endl;
                     for(auto w : expectationWeights) {
