@@ -993,12 +993,14 @@ namespace likelihood{
         template<typename T>
         T operator()(double k, T const & w_sum, T const & w2_sum) const {
             if(w_sum <= 0 || w2_sum < 0) {
+                /*
                 if(k!=0) {
                     std::cout << "k = " << std::setprecision(16) << k << std::endl;
                     std::cout << "w_sum = " << std::setprecision(16) << w_sum << std::endl;
                     std::cout << "w2_sum = " << std::setprecision(16) << w2_sum << std::endl;
                     throw std::runtime_error("Your likelihood problem is ill-formed.");
                 }
+                */
                 return(k==0?0:-std::numeric_limits<T>::max());
             }
 
@@ -1331,7 +1333,8 @@ namespace likelihood{
                 auto w_sum = accumulate(expectationWeights.begin(), expectationWeights.end());
                 auto w2_sum = accumulate(expectationSqWeights.begin(), expectationSqWeights.end());
 
-                if(observationAmount > 0 && w_sum <= 0 && expIt == simulation.end()) {
+                //if(observationAmount > 0 && w_sum <= 0 && expIt == simulation.end()) {
+                if(observationAmount > 0 && w_sum <= 0) {
                     std::cout << "BAD BIN" << std::endl;
                     std::cout << "Printing weights" << std::endl;
                     for(auto w : expectationWeights) {
