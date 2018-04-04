@@ -1024,7 +1024,6 @@ namespace likelihood{
             T alpha = pow(w_sum, T(2))/w2_sum;
             T beta = w_sum/w2_sum;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
-            std::cout << L << std::endl;
             return L;
         }
     };
