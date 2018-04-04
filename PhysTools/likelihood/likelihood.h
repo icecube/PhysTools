@@ -1003,6 +1003,8 @@ namespace likelihood{
             }
 
             if(w2_sum == 0) {
+                std::cout << "Zero error, should not be the case." << std::endl;
+                throw std::runtime_error("Should not be using this if you have no error");
                 return poissonLikelihood()(k, w_sum, w2_sum);
             }
 
@@ -1330,7 +1332,7 @@ namespace likelihood{
                 auto w_sum = accumulate(expectationWeights.begin(), expectationWeights.end());
                 auto w2_sum = accumulate(expectationSqWeights.begin(), expectationSqWeights.end());
 
-                if(observationAmount > 0 && w_sum <= 0) {
+                if(observationAmount > 0 && w_sum <= 0 && expIt == simulation.end()) {
                     std::cout << "BAD BIN" << std::endl;
                     std::cout << "Printing weights" << std::endl;
                     for(auto w : expectationWeights) {
