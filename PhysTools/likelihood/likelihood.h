@@ -1024,7 +1024,7 @@ namespace likelihood{
             T alpha = pow(w_sum, T(2))/w2_sum;
             T beta = w_sum/w2_sum;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
-
+            std::cout << L << std::endl;
             return L;
         }
     };
@@ -1308,6 +1308,7 @@ namespace likelihood{
                           n_events += e.num_events;
 						expectationWeights.push_back(w);
 						expectationSqWeights.push_back(w2*e.num_events);
+                        /*
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 							std::lock_guard<std::mutex> lck(printMtx);
 							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
@@ -1324,6 +1325,7 @@ namespace likelihood{
 							std::cout << "Bad num_events: " << e.num_events << "\nEvent:\n" << e << std::endl;
 							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
 						}
+                        */
 						//std::cout << "    " << expectationWeights.back() << std::endl;
 					}
 				}
