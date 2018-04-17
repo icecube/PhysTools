@@ -1207,7 +1207,7 @@ namespace likelihood{
     };
 
     template<typename T, typename U>
-    auto zip_2(T t, U u) {
+    auto zip_2(T t, U u) -> decltype(zip_2_impl<T,U,0,std::tuple_size<T>::value>()(t, u)) {
         return zip_2_impl<T,U,0,std::tuple_size<T>::value>()(t, u);
     }
 
