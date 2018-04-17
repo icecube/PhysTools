@@ -2167,7 +2167,7 @@ namespace likelihood{
 		Gaussian2DPrior(double mean0, double mean1, double stddev0, double stddev1, double correlation):
 		mean0(mean0),mean1(mean1),stddev0(stddev0),stddev1(stddev1),correlation(correlation),
 		lnorm(log(boost::math::constants::one_div_two_pi<double>()/(stddev0*stddev1*sqrt(1.0-correlation*correlation)))),
-        prefactor(-1.0/(2.0*pow(1.0-correlation*correlation, 2.0))){}
+        prefactor(-1.0/(2.0*sqrt(1.0-correlation*correlation))){}
 
 		template<typename DataType>
 		DataType operator()(DataType x0, DataType x1) const{
