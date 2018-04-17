@@ -2131,10 +2131,16 @@ namespace likelihood{
 	public:
 		GaussianPrior(double mean, double stddev):
 		mean(mean),stddev(stddev),
-		norm(boost::math::constants::one_div_root_two_pi<double>()/stddev){}
+		norm(boost::math::constants::one_div_root_two_pi<double>()/stddev) {
+            if(std::isinf(stddev) || std::isnan(stddev)) {
+                norm = 0.0;
+            }
+        }
 
 		template<typename DataType>
 		DataType operator()(DataType x) const{
+            if(norm == 0.0)
+                return 0.0;
 			DataType z=(x-mean)/stddev;
 			return(log(norm)-z*z/2);
 		}
@@ -2167,10 +2173,17 @@ namespace likelihood{
 		Gaussian2DPrior(double mean0, double mean1, double stddev0, double stddev1, double correlation):
 		mean0(mean0),mean1(mean1),stddev0(stddev0),stddev1(stddev1),correlation(correlation),
 		lnorm(log(boost::math::constants::one_div_two_pi<double>()/(stddev0*stddev1*sqrt(1.0-correlation*correlation)))),
-        prefactor(-1.0/(2.0*sqrt(1.0-correlation*correlation))){}
+        prefactor(-1.0/(2.0*sqrt(1.0-correlation*correlation))){
+            if(std::isinf(stddev0) || std::isinf(stddev0) || std::isnan(stddev0) || std::isnan(stddev1) || std::isnan(correlation)) {
+                lnorm = 0.0;
+                prefactor = 0.0;
+            }
+        }
 
 		template<typename DataType>
 		DataType operator()(DataType x0, DataType x1) const{
+            if(prefactor == 0.0)
+                return lnorm;
 			DataType z0=(x0-mean0)/stddev0;
 			DataType z1=(x1-mean1)/stddev1;
 			return lnorm + prefactor*(z0*z0 + z1*z1 - 2.0*correlation*z0*z1);
