@@ -990,17 +990,22 @@ namespace likelihood{
     };
 
     struct SAYLikelihood {
+        const bool is_frequentist;
+        SAYLikelihood():is_frequentist(false) {}
+        SAYLikelihood(bool is_frequentist):is_frequentist(is_frequentist) {}
+        template<typename T>
+        T operator()(double k, T const & w_sum, T const & w2_sum) const {
+            if(is_frequentist)
+                return frequentistSAYLikelihood()(k, w_sum, w2_sum);
+            else
+                return bayesianSAYLikelihood()(k, w_sum, w2_sum);
+        }
+    };
+
+    struct bayesianSAYLikelihood {
         template<typename T>
         T operator()(double k, T const & w_sum, T const & w2_sum) const {
             if(w_sum <= 0 || w2_sum < 0) {
-                /*
-                if(k!=0) {
-                    std::cout << "k = " << std::setprecision(16) << k << std::endl;
-                    std::cout << "w_sum = " << std::setprecision(16) << w_sum << std::endl;
-                    std::cout << "w2_sum = " << std::setprecision(16) << w2_sum << std::endl;
-                    throw std::runtime_error("Your likelihood problem is ill-formed.");
-                }
-                */
                 return(k==0?0:-std::numeric_limits<T>::max());
             }
 
@@ -1021,6 +1026,40 @@ namespace likelihood{
 
             T alpha = pow(w_sum, T(2))/w2_sum;
             T beta = w_sum/w2_sum;
+            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
+
+            return L;
+        }
+    };
+
+    struct frequentistSAYLikelihood {
+        template<typename T>
+        T operator()(double k, T const & w_sum, T const & w2_sum) const {
+            if(w_sum <= 0 || w2_sum < 0) {
+                return(k==0?0:-std::numeric_limits<T>::max());
+            }
+
+            if(w2_sum == 0) {
+                return poissonLikelihood()(k, w_sum, w2_sum);
+            }
+
+            T one(1);
+            T zero(0);
+            if(w_sum == zero) {
+                if(k == 0) {
+                    return T(0);
+                }
+                else {
+                    return T(-std::numeric_limits<double>::infinity());
+                }
+            }
+
+            T & mu = w_sum;
+            T mu2 = pow(mu, T(2));
+            T sigma = sqrt(w2_sum);
+
+            T beta = (mu + sqrt(mu2+sigma*4.0))/(sigma*2);
+            T alpha = beta + mu2/sigma + 1.0;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
 
             return L;
