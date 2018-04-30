@@ -989,19 +989,6 @@ namespace likelihood{
         }
     };
 
-    struct SAYLikelihood {
-        const bool is_frequentist;
-        SAYLikelihood():is_frequentist(false) {}
-        SAYLikelihood(bool is_frequentist):is_frequentist(is_frequentist) {}
-        template<typename T>
-        T operator()(double k, T const & w_sum, T const & w2_sum) const {
-            if(is_frequentist)
-                return frequentistSAYLikelihood()(k, w_sum, w2_sum);
-            else
-                return bayesianSAYLikelihood()(k, w_sum, w2_sum);
-        }
-    };
-
     struct bayesianSAYLikelihood {
         template<typename T>
         T operator()(double k, T const & w_sum, T const & w2_sum) const {
@@ -1054,15 +1041,30 @@ namespace likelihood{
                 }
             }
 
-            T & mu = w_sum;
+            const T & mu = w_sum;
             T mu2 = pow(mu, T(2));
-            T sigma = sqrt(w2_sum);
+            const T & sigma2 = w2_sum;
 
-            T beta = (mu + sqrt(mu2+sigma*4.0))/(sigma*2);
-            T alpha = beta + mu2/sigma + 1.0;
+            T beta = (mu + sqrt(mu2+sigma2*4.0))/(sigma2*2);
+            T alpha = (mu*sqrt(mu2+sigma2*4.0)/sigma2 + mu2/sigma2 + 2.0) / 2.0;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
 
             return L;
+        }
+    };
+
+    struct SAYLikelihood {
+        const bool is_frequentist;
+        SAYLikelihood():is_frequentist(false) {}
+        SAYLikelihood(bool is_frequentist):is_frequentist(is_frequentist) {}
+        bayesianSAYLikelihood bayesian;
+        frequentistSAYLikelihood frequentist;
+        template<typename T>
+        T operator()(double k, T const & w_sum, T const & w2_sum) const {
+            if(is_frequentist)
+                return frequentist(k, w_sum, w2_sum);
+            else
+                return bayesian(k, w_sum, w2_sum);
         }
     };
 
