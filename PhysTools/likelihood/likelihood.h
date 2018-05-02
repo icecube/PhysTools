@@ -1451,7 +1451,7 @@ namespace likelihood{
                             continue;
                         n_events += e.num_events;
 						expectationWeights.push_back(w);
-						expectationSqWeights.push_back(w2*e.num_events);
+						expectationSqWeights.push_back(w2/e.num_events);
 						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 							std::lock_guard<std::mutex> lck(printMtx);
 							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
@@ -1528,7 +1528,7 @@ namespace likelihood{
                         if(w != 0)
                             n_events += e.num_events;
 						expectationWeights.push_back(w);
-					    expectationSqWeights.push_back(pow(w, DataType(2.0))*e.num_events);
+					    expectationSqWeights.push_back(pow(w, DataType(2.0))/e.num_events);
                     }
 
                     //std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
