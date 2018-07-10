@@ -1004,7 +1004,7 @@ namespace likelihood{
             T zero(0);
             if(w_sum == zero) {
                 if(k == 0) {
-                    return T(0);
+                    return zero;
                 }
                 else {
                     return T(-std::numeric_limits<double>::infinity());
@@ -1034,7 +1034,7 @@ namespace likelihood{
             T zero(0);
             if(w_sum == zero) {
                 if(k == 0) {
-                    return T(0);
+                    return zero;
                 }
                 else {
                     return T(-std::numeric_limits<double>::infinity());
@@ -1444,11 +1444,10 @@ namespace likelihood{
 					expectationSqWeights.reserve(((entryStoringBin<Event>)*expIt).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
                         w = weighter(e);
-                        if(w <= 0)
-                            continue;
+                        assert(w >= 0);
                         w2 = pow(w, DataType(2.0));
-                        if(w2 <= 0)
-                            continue;
+                        assert(w2 >= 0);
+                        assert(e.num_events > 0);
                         n_events += e.num_events;
 						expectationWeights.push_back(w);
 						expectationSqWeights.push_back(w2/e.num_events);
@@ -1477,7 +1476,7 @@ namespace likelihood{
                 auto w_sum = accumulate(expectationWeights.begin(), expectationWeights.end());
                 auto w2_sum = accumulate(expectationSqWeights.begin(), expectationSqWeights.end());
 
-                if(observationAmount > 0 && w_sum <= 0 && expIt == simulation.end()) {
+                if(observationAmount > 0 && w_sum <= 0) {
                     std::cout << "BAD BIN" << std::endl;
                     std::cout << "Printing weights" << std::endl;
                     for(auto w : expectationWeights) {
@@ -1519,16 +1518,20 @@ namespace likelihood{
 					std::vector<DataType> expectationWeights;
 					std::vector<DataType> expectationSqWeights;
                     DataType w;
+                    DataType w2;
                     int n_events=0;
 					const std::vector<Event>& exp=((entryStoringBin<Event>)*it).entries();
 					expectationWeights.reserve(((entryStoringBin<Event>)*it).size());
 					expectationSqWeights.reserve(((entryStoringBin<Event>)*it).size());
 					for(const RawEvent& e : ((entryStoringBin<Event>)*it)) {
                         w = weighter(e);
-                        if(w != 0)
-                            n_events += e.num_events;
+                        assert(w >= 0);
+                        w2 = pow(w, DataType(2.0));
+                        assert(w2 >= 0);
+                        assert(e.num_events > 0);
+                        n_events += e.num_events;
 						expectationWeights.push_back(w);
-					    expectationSqWeights.push_back(pow(w, DataType(2.0))/e.num_events);
+					    expectationSqWeights.push_back(w2/e.num_events);
                     }
 
                     //std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
