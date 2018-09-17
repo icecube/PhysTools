@@ -199,6 +199,7 @@ public:
 		Format():gnuplot::Format(FILLED_CURVES),error_style_(LEFT_STEPS),showFill_(true),showErrors_(true){}
 		Format(gnuplot::Format::Style s):gnuplot::Format(s),error_style_(LEFT_STEPS),showFill_(true),showErrors_(true){}
 		Format(gnuplot::Format f):gnuplot::Format(f),error_style_(LEFT_STEPS),showFill_(true),showErrors_(true){}
+		Format(const Format& f):gnuplot::Format(f),fill_color_(f.fill_color_),error_style_(f.error_style_),showFill_(f.showFill_),showErrors_(f.showErrors_){}
 		
 		gnuplot::ColorSpec fill_color() const{ return(fill_color_); }
 		Format& fill_color(gnuplot::ColorSpec fill_color){
@@ -245,6 +246,11 @@ public:
 	template<typename AxisType, typename = typename std::is_convertible<typename std::add_lvalue_reference<AxisType>::type,histograms::axis&>::type>
 	FilledErrorHist(const std::string& title,Format f,AxisType axis):
 	Plottable(title),histograms::histogram<1,BinType>(axis),format_(f){}
+	
+	FilledErrorHist(const FilledErrorHist& other):
+	Plottable(other.title()),
+	histograms::histogram<1,BinType>((const histograms::histogram<1,BinType>&)other),
+	format_(other.format_){}
 	
 	FilledErrorHist(histograms::histogram<1,BinType>&& other):histograms::histogram<1,BinType>(std::move(other)){}
 	
