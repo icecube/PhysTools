@@ -1328,9 +1328,14 @@ namespace likelihood{
 		result_type operator()(const Event& e) const{ return(1.0); }
 	};
 
+    struct simpleDataWeightConstructor{
+		using result_type=simpleDataWeighter;
+		result_type operator()(const std::vector<double>&) const{ return(simpleDataWeighter()); }
+	};
+
 	// fundamental wrapper object for setting up likelihood fits for models by comparing observed data
 	// events to simulated events
-	template<typename Event, typename HistogramsType, typename DataWeighter, typename SimulationWeighterConstructor, typename CPrior, typename LFunc, int MaxDerivativeDimension=-1>
+	template<typename Event, typename HistogramsType, typename DataWeighterConstructor, typename SimulationWeighterConstructor, typename CPrior, typename LFunc, int MaxDerivativeDimension=-1>
 	struct LikelihoodProblem{
 		using RawEvent = typename remove_reference_wrapper<Event>::type;
 		static constexpr int DerivativeDimension=MaxDerivativeDimension;
@@ -1351,7 +1356,7 @@ namespace likelihood{
 
 		//object used to compute the weights of the observed data events
 		//this may be a non-trivial calculation if the 'observed data' is a MC sample
-		DataWeighter dataWeighter;
+		DataWeighterConstructor dataWeightC;
 
 		//object used to construct the weighter for expected events from a set of model parameters
 		//must be callable with an std::vector<double> containing the model parameters
@@ -1372,7 +1377,7 @@ namespace likelihood{
 
 		LikelihoodProblem(HistogramsType observation, const std::vector<HistogramsType>& simulations,
 						  CPrior continuousPrior, std::vector<double> discretePrior,
-						  const DataWeighter& dataWeighter,
+						  const DataWeighterConstructor& dataWeightC,
 						  const SimulationWeighterConstructor& simWeightC,
 						  const LFunc& likelihoodFunction,
 						  std::vector<double> parameterSeeds,
@@ -1381,7 +1386,7 @@ namespace likelihood{
 		simulations(simulations),
 		continuousPrior(continuousPrior),
 		discretePrior(discretePrior),
-		dataWeighter(dataWeighter),
+		dataWeightC(dataWeightC),
 		simWeightC(simWeightC),
 		likelihoodFunction(likelihoodFunction),
 		parameterSeeds(parameterSeeds),
@@ -1390,10 +1395,10 @@ namespace likelihood{
 		{}
 
 		template<typename AltLFunc>
-		LikelihoodProblem<Event, HistogramsType, DataWeighter, SimulationWeighterConstructor, CPrior, AltLFunc, MaxDerivativeDimension>
+		LikelihoodProblem<Event, HistogramsType, DataWeighterConstructor, SimulationWeighterConstructor, CPrior, AltLFunc, MaxDerivativeDimension>
 		makeAlternateLikelihood(const AltLFunc& altlikelihoodFunction) const{
-			using result_type=LikelihoodProblem<Event, HistogramsType, DataWeighter, SimulationWeighterConstructor, CPrior, AltLFunc, MaxDerivativeDimension>;
-			return(result_type(observation,simulations,continuousPrior,discretePrior,simWeightC,altlikelihoodFunction,parameterSeeds,evaluationThreadCount));
+			using result_type=LikelihoodProblem<Event, HistogramsType, DataWeighterConstructor, SimulationWeighterConstructor, CPrior, AltLFunc, MaxDerivativeDimension>;
+			return(result_type(observation,simulations,continuousPrior,discretePrior,dataWeightC,simWeightC,altlikelihoodFunction,parameterSeeds,evaluationThreadCount));
 		}
 
 		std::vector<double> getSeed() const{
@@ -1414,11 +1419,11 @@ namespace likelihood{
 		const SimulationWeighterConstructor& getSimulationWeighterConstructor() const{ return(simWeightC); }
 
 		//evaluate the (non-prior) contribution to the likelihood from one observation,expectation histogram pair
-		template<typename DataType, typename SimulationWeighter, typename HistogramType>
-		void evaluateLikelihoodCore(const HistogramType& observation, SimulationWeighter& weighter, const HistogramType& simulation,
+		template<typename DataType, typename SimulationWeighter, typename TDataWeighter, typename HistogramType>
+		void evaluateLikelihoodCore(const HistogramType& observation, SimulationWeighter& weighter, TDataWeighter& dweighter, const HistogramType& simulation,
 								    std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions) const{
 			const auto& likelihoodFunction=this->likelihoodFunction;
-			auto dataWeightAccumulator=[this](double t, const Event& e){ return(t+this->dataWeighter(e)); };
+			auto dataWeightAccumulator=[&dweighter](double t, const Event& e){ return(t+dweighter(e)); };
 
 			auto likelihoodContribution=[dataWeightAccumulator,&weighter,&simulation,&likelihoodFunction,&printMtx](typename HistogramType::const_iterator it)->DataType{
 				entryStoringBin<Event> obs=*it;
@@ -1600,24 +1605,24 @@ namespace likelihood{
 
 		//evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
 	    //[recursive/iterative case]
-		template<unsigned int Counter, typename Likelihood, typename DataType, typename SimulationWeighter>
+		template<unsigned int Counter, typename Likelihood, typename DataType, typename SimulationWeighter, typename TDataWeighter>
 		struct evaluateLikelihoodIterator{
-			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, const HistogramsType& simulation,
+			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, TDataWeighter& dweighter, const HistogramsType& simulation,
 							std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions){
 				//evaluate for this pair
 				constexpr unsigned int idx=std::tuple_size<HistogramsType>::value - Counter;
-				like.evaluateLikelihoodCore(std::get<idx>(observation), weighter, std::get<idx>(simulation),
+				like.evaluateLikelihoodCore(std::get<idx>(observation), weighter, dweighter, std::get<idx>(simulation),
 									   printMtx, pool, contributions);
 				//evaluate for the next pair
-				evaluateLikelihoodIterator<Counter-1, Likelihood, DataType, SimulationWeighter>{}
-					(like, observation, weighter, simulation, printMtx, pool, contributions);
+				evaluateLikelihoodIterator<Counter-1, Likelihood, DataType, SimulationWeighter, TDataWeighter>{}
+					(like, observation, weighter, dweighter, simulation, printMtx, pool, contributions);
 			}
 		};
 		//evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
 	    //[base case]
-		template<typename Likelihood, typename DataType, typename SimulationWeighter>
-		struct evaluateLikelihoodIterator<0,Likelihood,DataType,SimulationWeighter>{
-			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, const HistogramsType& simulation,
+		template<typename Likelihood, typename DataType, typename SimulationWeighter, typename TDataWeighter>
+		struct evaluateLikelihoodIterator<0,Likelihood,DataType,SimulationWeighter,TDataWeighter>{
+			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, TDataWeighter& dweighter, const HistogramsType& simulation,
 							std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions){
 				//do nothing
 			}
@@ -1625,8 +1630,8 @@ namespace likelihood{
 
 		//evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
 		//[top level]
-		template<typename DataType, typename SimulationWeighter>
-		DataType evaluateLikelihood(SimulationWeighter weighter, const HistogramsType& simulation) const{
+		template<typename DataType, typename SimulationWeighter, typename TDataWeighter>
+		DataType evaluateLikelihood(SimulationWeighter weighter, TDataWeighter dweighter, const HistogramsType& simulation) const{
 			std::mutex printMtx;
 	        ThreadPool pool(evaluationThreadCount);
 			std::vector<std::future<DataType>> contributions;
@@ -1635,8 +1640,8 @@ namespace likelihood{
 			//Iterate over the observeation and expectation tuples,
 			//firing off tasks for computing the per-bin likelihoods.
 			//Futures for these results will accumulate in contributions.
-			evaluateLikelihoodIterator<std::tuple_size<HistogramsType>::value,decltype(*this),DataType,SimulationWeighter>{}
-			(*this, observation, weighter, simulation, printMtx, pool, contributions);
+			evaluateLikelihoodIterator<std::tuple_size<HistogramsType>::value,decltype(*this),DataType,SimulationWeighter,TDataWeighter>{}
+			(*this, observation, weighter, dweighter, simulation, printMtx, pool, contributions);
 
 			//Iterate over the futures collecting the results and combining them when they are availiable.
 			DataType llh(0.0);
@@ -1777,10 +1782,10 @@ namespace likelihood{
 //			return(llh);
 //		}
 
-		template<typename DataType, typename SimulationWeighter, typename DataHistogramType, typename ResultHistogramType>
-		void evaluateLikelihoodContributionsCore(const DataHistogramType& observation, SimulationWeighter& weighter, const DataHistogramType& simulation, ResultHistogramType& result) const{
+		template<typename DataType, typename SimulationWeighter, typename TDataWeighter, typename DataHistogramType, typename ResultHistogramType>
+		void evaluateLikelihoodContributionsCore(const DataHistogramType& observation, SimulationWeighter& weighter, TDataWeighter& dweighter, const DataHistogramType& simulation, ResultHistogramType& result) const{
 			const auto& likelihoodFunction=this->likelihoodFunction;
-			auto dataWeightAccumulator=[this](double t, const Event& e){ return(t+this->dataWeighter(e)); };
+			auto dataWeightAccumulator=[&dweighter](double t, const Event& e){ return(t+dweighter(e)); };
 
 			using HistDimExt = phys_tools::histograms::detail::dimensionExtractor<phys_tools::histograms::histogram,DataHistogramType::dimensions,typename DataHistogramType::dataType>;
 			const unsigned int histDimensions=HistDimExt::getDim(&observation);
@@ -1977,7 +1982,7 @@ namespace likelihood{
 			for(size_t dn=minDN; dn<maxDN; dn++){
 				DataType llh=(includePriors?cPrior+discretePrior[dn]:0);
 				params.back()=dn;
-				llh+=evaluateLikelihood<DataType>(simWeightC(continuousParams),simulations[dn]);
+				llh+=evaluateLikelihood<DataType>(simWeightC(continuousParams),dataWeightC(continuousParams),simulations[dn]);
 
 				if(llh>bestLLH){
 					bestLLH=llh;
@@ -2066,18 +2071,18 @@ namespace likelihood{
 	//Note that the order of the template parameters has been shuffled, to put those which cannot be deduced from the
 	//arguments (Event, DataDimension, and MaxDerivativeDimension) first so that they can be specified while the rest
 	//are left to be deduced, while the order of the function arguments is the same as for the LikelihoodProblem constructor
-	template<typename Event, int MaxDerivativeDimension=-1, typename HistogramsType, typename DataWeighter, typename SimulationWeighterConstructor, typename CPrior, typename LFunc,
-	         typename LikelihoodType=LikelihoodProblem<Event,HistogramsType,DataWeighter,SimulationWeighterConstructor,CPrior,LFunc,MaxDerivativeDimension>>
+	template<typename Event, int MaxDerivativeDimension=-1, typename HistogramsType, typename DataWeightConstructor, typename SimulationWeighterConstructor, typename CPrior, typename LFunc,
+	         typename LikelihoodType=LikelihoodProblem<Event,HistogramsType,DataWeightConstructor,SimulationWeighterConstructor,CPrior,LFunc,MaxDerivativeDimension>>
 	LikelihoodType makeLikelihoodProblem(HistogramsType observation, const std::vector<HistogramsType>& simulations,
                                          CPrior continuousPrior, std::vector<double> discretePrior,
-                                         const DataWeighter& dataWeighter,
+                                         const DataWeightConstructor& dataWeightC,
                                          const SimulationWeighterConstructor& simWeightC,
                                          const LFunc& likelihoodFunction,
                                          std::vector<double> parameterSeeds,
                                          unsigned int evaluationThreadCount=1){
 		return(LikelihoodType(observation,simulations,
 							  continuousPrior,discretePrior,
-							  dataWeighter,simWeightC,likelihoodFunction,
+							  dataWeightC,simWeightC,likelihoodFunction,
 							  parameterSeeds,evaluationThreadCount));
 	}
 
@@ -2246,6 +2251,21 @@ namespace likelihood{
 		template<typename DataType>
 		DataType operator()(DataType x) const{
 			return(limits(x)+prior(x));
+		}
+	};
+
+    struct ZigZagPrior{
+	private:
+		double point;
+		double scale;
+        double m;
+	public:
+		ZigZagPrior(double point, double scale, bool small):
+        point(point), scale(scale), m(int(small)*2.0 - 1.0) {}
+
+		template<typename DataType>
+		DataType operator()(DataType x) const{
+            return log((tanh(scale*(point-x)*m)+1.)/2.+1e-18)-exp(-scale*(point-x)*m);
 		}
 	};
 
