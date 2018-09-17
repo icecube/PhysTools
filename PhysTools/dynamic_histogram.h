@@ -157,8 +157,8 @@ public:
 		initialized=other.initialized;
 		underflow=other.underflow;
 		overflow=other.overflow;
-		axes = new axis*[dimensions];
-		count = new internalCoordinate[dimensions];
+		axes=new axis*[dimensions];
+		count=new internalCoordinate[dimensions];
 		std::copy(&other.count[0],&other.count[dimensions],&count[0]);
 		for(unsigned int i=0; i<dimensions; i++){
 			axes[i]=other.axes[i]->copy();
@@ -569,7 +569,7 @@ public:
 		}
 		
 		///Get the internal coordinates within the histogram (bin indices) to which this iterator refers
-		const internalCoordinate* (&getCoordinates() const){
+		const internalCoordinate* getCoordinates() const{
 			return(coordinates);
 		}
 		///Get the internal coordinate in dimension dim within the histogram (bin index) to which this iterator refers
@@ -762,7 +762,7 @@ public:
 		}
 		
 		///Get the internal coordinates within the histogram (bin indices) to which this iterator refers
-		const internalCoordinate* (&getCoordinates() const){
+		const internalCoordinate* getCoordinates() const{
 			return(coordinates);
 		}
 		///Get the internal coordinate in dimension dim within the histogram (bin index) to which this iterator refers
