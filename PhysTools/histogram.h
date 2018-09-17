@@ -56,6 +56,7 @@ namespace phys_tools{
 				static void defaultData(double* data, unsigned int count){
 					memset(data,0,count*sizeof(DataType));
 				}
+				static DataType neutral(){ return DataType(0); }
 				static DataType unit(){ return DataType(1); }
 				constexpr static bool enable_automatic_amount_handling=true;
 			};
@@ -474,9 +475,9 @@ namespace phys_tools{
 				modificationProxy():value(nullptr),scale(0.0){}
 				modificationProxy(const modificationProxy& other):value(other.value),scale(other.scale){}
 				operator StoreType() const{ return(*value*scale); }
-				const modificationProxy& operator=(StoreType v){ *value=v; return(*this); }
-				const modificationProxy& operator+=(StoreType v){ *value+=v; return(*this); }
-				const modificationProxy& operator-=(StoreType v){ *value-=v; return(*this); }
+				const modificationProxy& operator=(StoreType v){ *value=v*(1./scale); return(*this); }
+				const modificationProxy& operator+=(StoreType v){ *value+=v*(1./scale); return(*this); }
+				const modificationProxy& operator-=(StoreType v){ *value-=v*(1./scale); return(*this); }
 				template<typename U>
 				const modificationProxy& operator*=(const U& v){ *value*=v; return(*this); }
 				template<typename U>
@@ -686,12 +687,13 @@ namespace phys_tools{
 			///Construct a histogram without axes
 			histogram():
 			data(new StoreType[1]),
-			underflow(0),overflow(0)
+			underflow(detail::histogramTraits<StoreType>::neutral()),
+			overflow(detail::histogramTraits<StoreType>::neutral())
 			{
 				std::fill_n(&axes[0],N,nullptr);
 				std::fill_n(&count[0],N,0);
 			}
-			
+		
 			///Construct a histogram from a set of axes
 			template<typename Axis, typename... Axes, typename = typename
         std::enable_if<!(
@@ -703,7 +705,8 @@ namespace phys_tools{
         >::type>
 			histogram(Axis axis, Axes... axes):
 			data(new StoreType[1]),
-			underflow(0),overflow(0){
+			underflow(detail::histogramTraits<StoreType>::neutral()),
+			overflow(detail::histogramTraits<StoreType>::neutral()){
 				static_assert(sizeof...(axes)+1==dimensions,
 				              "Number of axes used to construct a histogram "
 				              "must be equal to its number of dimensions");
@@ -1351,9 +1354,9 @@ namespace phys_tools{
 			};
 			
 			///A bidirectional iterator
-			typedef iteratorTempl<histogram,modificationProxy,modificationProxy&,modificationProxy*> iterator;
+			typedef iteratorTempl<histogram,modificationProxy,modificationProxy,modificationProxy*> iterator;
 			///A const bidirectional iterator
-			typedef iteratorTempl<const histogram,StoreType,const StoreType&,const StoreType*> const_iterator;
+			typedef iteratorTempl<const histogram,StoreType,StoreType&,const StoreType*> const_iterator;
 			friend iterator;
 			friend const_iterator;
 			
