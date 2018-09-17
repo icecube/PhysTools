@@ -162,16 +162,16 @@ namespace autodiff{
 			g[index]=T(1);
 		}
 		
-        FD<nVars,T>(const FD<nVars,T>& f):
+		FD<nVars,T>(const FD<nVars,T>& f):
 		v(f.v){
 			std::copy(f.g,f.g+nVars,g);
 		}
-		
+
         template<typename U>
-		FD<nVars,T>(const FD<nVars,U>& f):
-		v(f.value()){
+        FD<nVars,T>(const FD<nVars,U>& f):
+            v(f.value()){
             f.copyGradient(g);
-		}
+        }
 		
 		FD<nVars,T>& operator=(const FD<nVars,T>& f){
 			if(&f!=this){
@@ -180,14 +180,13 @@ namespace autodiff{
 			}
 			return(*this);
 		}
-		
+
         template<typename U>
         FD<nVars,T>& operator=(const FD<nVars,U>& f){
-			v=f.value();
-
+            v=f.value();
             f.copyGradient(g);
-			return(*this);
-		}
+            return(*this);
+        }
 		
 		FD<nVars,T>& operator=(const T& t){
 			v=t;
@@ -218,12 +217,12 @@ namespace autodiff{
 			assert(index<nVars);
 			g[index]=d;
 		}
-		
+
         template<typename Iter>
         void copyGradient(Iter grad) const{
             using val_t=typename std::iterator_traits<Iter>::value_type;
             std::transform(g, g+nVars, grad, [](T c) -> val_t { return static_cast<val_t>(c); });
-		}
+        }
 		
 		void copyGradient(T grad[nVars]) const{
 			std::copy(g,g+nVars,grad);
@@ -345,7 +344,7 @@ namespace autodiff{
 				result.g[i] = (g[i] - result.v*f.g[i])/f.v;
 			return(result);
 		}
-	
+		
 		template <template<unsigned int,class> class F, int D, class T_>
 		friend struct detail::dimensionExtractor;
 		template <unsigned int nVars_, typename T_, typename U>
@@ -380,8 +379,8 @@ namespace autodiff{
 		friend FD<nVars_,T_> log(const FD<nVars_,T_>& f);
 		template <unsigned int nVars_, typename T_>
 		friend FD<nVars_,T_> log10(const FD<nVars_,T_>& f);
-		template <unsigned int nVars_, typename T_>
-		friend FD<nVars_,T_> log2(const FD<nVars_,T_>& f);
+        template <unsigned int nVars_, typename T_>
+        friend FD<nVars_,T_> log2(const FD<nVars_,T_>& f);
 		template <typename FD_t, typename U>
 		friend FD_t pow(const FD_t& b, const U& e, typename boost::enable_if< boost::is_arithmetic< U >, int >::type);
 		template <typename FD_t, typename U>
@@ -762,27 +761,27 @@ namespace autodiff{
 		std::transform(f.g,f.g+f.nVars,result.g, [&](const T& gi){ return(gi/d); });
 		return(result);
 	}
-	
+
     template <unsigned int nVars, typename T>
-	FD<nVars,T> log2(const FD<nVars,T>& f){
-		using std::log;
-		using std::log2;
-		FD<nVars,T> result(log2(f.v),FD<nVars,T>::noInit());
-		const T d=log(T(2))*f.v;
-		const unsigned int n=detail::dimensionExtractor<FD,nVars,T>::nVars(result);
-		std::transform(f.g,f.g+n,result.g, [&](const T& gi){ return(gi/d); });
-		return(result);
-	}
-	
-	template <typename T>
-	FD<Dynamic,T> log2(const FD<Dynamic,T>& f){
-		using std::log;
-		using std::log2;
-		FD<Dynamic,T> result(log2(f.v),f.nVars,FD<Dynamic,T>::noInit());
-		const T d=log(T(2))*f.v;
-		std::transform(f.g,f.g+f.nVars,result.g, [&](const T& gi){ return(gi/d); });
-		return(result);
-	}
+    FD<nVars,T> log2(const FD<nVars,T>& f){
+            using std::log;
+            using std::log2;
+            FD<nVars,T> result(log2(f.v),FD<nVars,T>::noInit());
+            const T d=log(T(2))*f.v;
+            const unsigned int n=detail::dimensionExtractor<FD,nVars,T>::nVars(result);
+            std::transform(f.g,f.g+n,result.g, [&](const T& gi){ return(gi/d); });
+            return(result);
+    }
+    
+    template <typename T>
+    FD<Dynamic,T> log2(const FD<Dynamic,T>& f){
+            using std::log;
+            using std::log2;
+            FD<Dynamic,T> result(log2(f.v),f.nVars,FD<Dynamic,T>::noInit());
+            const T d=log(T(2))*f.v;
+            std::transform(f.g,f.g+f.nVars,result.g, [&](const T& gi){ return(gi/d); });
+            return(result);
+    }
 	
 	//TODO: update all pow functions with noInit and Dynamic specialization
 	template <typename FD_t, typename U>
@@ -1668,8 +1667,8 @@ namespace autodiff{
 		friend FD<Dynamic,T_> log(FD<Dynamic,T_>&& f);
 		template <unsigned int nVars_, typename T_>
 		friend FD<nVars_,T_> log10(const FD<nVars_,T_>& f);
-		template <unsigned int nVars_, typename T_>
-		friend FD<nVars_,T_> log2(const FD<nVars_,T_>& f);
+        template <unsigned int nVars_, typename T_>
+        friend FD<nVars_,T_> log2(const FD<nVars_,T_>& f);
 		template <typename FD_t, typename U>
 		friend FD_t pow(const FD_t& b, const U& e, typename boost::enable_if< boost::is_arithmetic< U >, int >::type);
 		template <typename FD_t, typename U>
@@ -1709,9 +1708,9 @@ namespace std{
 	template <unsigned int nVars, typename T>
 	bool isnan(const phys_tools::autodiff::FD<nVars,T>& f){
         bool gradnan = false;
-		for(unsigned int i=0; i<nVars; i++)
-			gradnan |= isnan(f.derivative(i));
-		return(isnan(f.value()) || gradnan);
+        for(unsigned int i=0; i<nVars; i++)
+            gradnan |= isnan(f.derivative(i));
+        return(isnan(f.value()) || gradnan);
 	}
 }
 	
