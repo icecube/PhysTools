@@ -85,6 +85,7 @@ namespace phys_tools{
 				};
 				constexpr static bool enable_automatic_amount_handling=true;
 				static void defaultData(entryCounter<T>* data, unsigned int count){}
+				static entryCounter<T> neutral(){ return(entryCounter<T>(1)); }
 				static entryCounter<T> unit(){ return(entryCounter<T>(1)); }
 			};
 		} //namespace detail
@@ -207,6 +208,7 @@ namespace phys_tools{
 				};
 				constexpr static bool enable_automatic_amount_handling=true;
 				static void defaultData(meanVarTracker<T>* data, unsigned int count){}
+				static meanVarTracker<T> neutral(){ return(meanVarTracker<T>(0)); }
 				static meanVarTracker<T> unit(){ return(meanVarTracker<T>(1)); }
 			};
 			
@@ -313,6 +315,7 @@ namespace phys_tools{
 				using amount=amount_type<sqErrorValue<T>>;
 				constexpr static bool enable_automatic_amount_handling=true;
 				static void defaultData(sqErrorValue<T>* data, unsigned int count){}
+				static sqErrorValue<T> neutral(){ return(sqErrorValue<T>(0)); }
 				static sqErrorValue<T> unit(){ return(sqErrorValue<T>(1)); }
 			};
 		}
@@ -345,67 +348,68 @@ namespace phys_tools{
 		
 		struct fcErrorValue{
 		private:
-			double value;
+			double val;
 			mutable double errMin, errMax;
 			mutable bool errorsUpToDate;
 			
 			void recomputeErrors() const{
 				if(errorsUpToDate)
 					return;
-				if(value<100){
-					detail::interval<double> errRange=detail::fcPoissonConfidenceInterval(value, .6827, 0.0, 1e-3);
+				if(val<100){
+					detail::interval<double> errRange=detail::fcPoissonConfidenceInterval(val, .6827, 0.0, 1e-3);
 					errMin=errRange.min;
 					errMax=errRange.max;
 				}
 				else{
-					double r=sqrt(value);
-					errMin=value-r;
-					errMax=value+r;
+					double r=sqrt(val);
+					errMin=val-r;
+					errMax=val+r;
 				}
 				errorsUpToDate=true;
 			}
 		public:
-			fcErrorValue():value(0),errorsUpToDate(false){}
+			fcErrorValue():val(0),errorsUpToDate(false){}
 			
-			fcErrorValue(double d):value(d),errorsUpToDate(false){}
+			fcErrorValue(double d):val(d),errorsUpToDate(false){}
 			
 			fcErrorValue& operator+=(const double& d){
-				value+=d;
+				val+=d;
 				errorsUpToDate=false;
 				return(*this);
 			}
 			fcErrorValue& operator+=(const fcErrorValue& other){
-				value+=other.value;
+				val+=other.val;
 				errorsUpToDate=false;
 				return(*this);
 			}
 			fcErrorValue& operator*=(double scale){
-				value*=scale;
+				val*=scale;
 				errorsUpToDate=false;
 				return(*this);
 			}
 			fcErrorValue operator+(double a) const{
-				return(fcErrorValue(value+a));
+				return(fcErrorValue(val+a));
 			}
 			fcErrorValue operator+(const fcErrorValue& other) const{
-				return(fcErrorValue(value+other.value));
+				return(fcErrorValue(val+other.val));
 			}
 			fcErrorValue operator*(double scale) const{
-				return(fcErrorValue(value*scale));
+				return(fcErrorValue(val*scale));
 			}
 			
-			operator double() const{ return(value); }
+			operator double() const{ return(val); }
+			double value() const{ return(val); }
 			double errorMin() const{ recomputeErrors(); return(errMin); }
 			double errorMax() const{ recomputeErrors(); return(errMax); }
 			
 			template<class Archive>
 			void save(Archive & ar, const unsigned int version) const{
-				ar << boost::serialization::make_nvp("value",value);
+				ar << boost::serialization::make_nvp("value",val);
 			}
 			
 			template<class Archive>
 			void load(Archive & ar, const unsigned int version){
-				ar >> boost::serialization::make_nvp("value",value);
+				ar >> boost::serialization::make_nvp("value",val);
 				errorsUpToDate=false;
 			}
 			
@@ -422,7 +426,96 @@ namespace phys_tools{
 				using amount=amount_type<fcErrorValue>;
 				constexpr static bool enable_automatic_amount_handling=true;
 				static void defaultData(fcErrorValue* data, unsigned int count){/* Nothing to do */}
+				static fcErrorValue neutral(){ return 0.0; }
 				static fcErrorValue unit(){ return 1.0; }
+			};
+		}
+		
+		struct GeneralErrorValue{
+		private:
+			double val, errMin, errMax;
+		public:
+			GeneralErrorValue():val(0),errMin(0),errMax(0){}
+			GeneralErrorValue(double d):val(d),errMin(0),errMax(0){}
+			GeneralErrorValue(const GeneralErrorValue& other):
+			val(other.val),errMin(other.errMin),errMax(other.errMax){}
+			template <typename OtherErrType>
+			GeneralErrorValue(const OtherErrType& other):
+			val(other.value()),errMin(other.errorMin()),errMax(other.errorMax()){}
+			
+			GeneralErrorValue& operator=(const GeneralErrorValue& other){
+				val=other.val;
+				errMin=other.errMin;
+				errMax=other.errMax;
+				return(*this);
+			}
+			
+			template <typename OtherErrType>
+			GeneralErrorValue& operator=(const OtherErrType& other){
+				val=other.value();
+				errMin=other.errorMin();
+				errMax=other.errorMax();
+				return(*this);
+			}
+			
+			GeneralErrorValue& operator+=(const double& d){
+				val+=d;
+				errMin+=d;
+				errMax+=d;
+				return(*this);
+			}
+			GeneralErrorValue& operator+=(const GeneralErrorValue& other){
+				if((errMin==val && errMax==val) || (other.errMin==other.val && other.errMax==other.val)){
+					val+=other.val;
+					errMin+=other.errMin;
+					errMax+=other.errMax;
+					return(*this);
+				}
+				else{
+					throw std::runtime_error("Adding GeneralErrorValues with non-zero errors is not defined");
+				}
+			}
+			GeneralErrorValue& operator*=(double scale){
+				val*=scale;
+				errMin*=scale;
+				errMax*=scale;
+				return(*this);
+			}
+			GeneralErrorValue operator+(double a) const{
+				return(GeneralErrorValue(*this).operator+=(a));
+			}
+			GeneralErrorValue operator+(const GeneralErrorValue& other) const{
+				return(GeneralErrorValue(*this).operator+=(other));
+			}
+			GeneralErrorValue operator*(double scale) const{
+				return(GeneralErrorValue(*this)*=scale);
+			}
+			
+			operator double() const{ return(val); }
+			double value() const{ return(val); }
+			double errorMin() const{ return(errMin); }
+			double errorMax() const{ return(errMax); }
+			
+			template<class Archive>
+			void serialize(Archive & ar, const unsigned int version){
+				ar & boost::serialization::make_nvp("value",val);
+				ar & boost::serialization::make_nvp("errorMin",errMin);
+				ar & boost::serialization::make_nvp("errorMax",errMax);
+			}
+		};
+		
+		GeneralErrorValue operator*(double scale, const GeneralErrorValue& v);
+		std::ostream& operator<<(std::ostream& os, const GeneralErrorValue& v);
+		
+		namespace detail{
+			template<>
+			class histogramTraits<GeneralErrorValue>{
+			public:
+				using amount=amount_type<GeneralErrorValue>;
+				constexpr static bool enable_automatic_amount_handling=true;
+				static void defaultData(GeneralErrorValue* data, unsigned int count){/* Nothing to do */}
+				static GeneralErrorValue neutral(){ return 0.0; }
+				static GeneralErrorValue unit(){ return 1.0; }
 			};
 		}
 		
