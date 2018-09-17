@@ -109,7 +109,16 @@ fcErrorValue operator*(double scale, const fcErrorValue& v){
 }
 
 std::ostream& operator<<(std::ostream& os, const fcErrorValue& v){
-	os << (double)v << '[' << v.errorMin() << ',' << v.errorMax() << ']';
+	os << v.value() << '[' << v.errorMin() << ',' << v.errorMax() << ']';
+	return(os);
+}
+	
+GeneralErrorValue operator*(double scale, const GeneralErrorValue& v){
+	return(GeneralErrorValue(v)*=scale);
+}
+
+std::ostream& operator<<(std::ostream& os, const GeneralErrorValue& v){
+	os << v.value() << '[' << v.errorMin() << ',' << v.errorMax() << ']';
 	return(os);
 }
 
