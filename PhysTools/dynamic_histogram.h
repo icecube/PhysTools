@@ -157,8 +157,8 @@ public:
 		initialized=other.initialized;
 		underflow=other.underflow;
 		overflow=other.overflow;
-		axes(new axis*[dimensions]),
-		count(new internalCoordinate[dimensions]),
+		axes = new axis*[dimensions];
+		count = new internalCoordinate[dimensions];
 		std::copy(&other.count[0],&other.count[dimensions],&count[0]);
 		for(unsigned int i=0; i<dimensions; i++){
 			axes[i]=other.axes[i]->copy();
