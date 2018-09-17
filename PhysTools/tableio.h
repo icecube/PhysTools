@@ -5,16 +5,15 @@
 #include <string>
 #include <map>
 #include <memory>
+#include <set>
 #include <vector>
 
 #include <boost/lexical_cast.hpp>
 #include <boost/mpl/string.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 
-#include <hdf5.h>
-#include <hdf5_hl.h>
-
 #include <PhysTools/hdf5_serialization.h>
+#include <hdf5_hl.h>
 
 namespace phys_tools{
 
@@ -347,7 +346,7 @@ namespace detail{
 	//must be located contiguously in memory. As a result, to convert one field of a number of
 	//structs it's vastly more efficient to copy the scattered data aside into a contiguous
 	//buffer, do the conversion, and copy it back.
-	//The types being converted had beeter be POD for this to work safely, but that is almost 
+	//The types being converted had better be POD for this to work safely, but that is almost
 	//certainly going to be the case.
 	template<typename RecordType>
 	void convertField(const hid_t sourceType, const hid_t targetType, const size_t fieldSize, const ptrdiff_t fieldOffset, std::vector<RecordType>& data){
@@ -362,6 +361,12 @@ namespace detail{
 			memcpy((char*)&data[i]+fieldOffset, buf_ptr+i*fieldSize, fieldSize);
 	}
 } //namespace detail
+	
+///Get the set of tables which are at the given location in an HDF5 file
+///\param file the file in which to search
+///\param loc the path of the location in the file to search
+///\return the names of tables found in the given location
+std::set<std::string> getTables(H5File& file, std::string loc);
 
 //read up to 1 MB of data at a time
 template<typename T, typename Event, typename Callback>
