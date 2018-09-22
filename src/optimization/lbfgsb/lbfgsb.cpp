@@ -2,7 +2,7 @@
    Dependencies on the libf2c runtime have been removed.
 */
 
-#include "PhysTools/lbfgsb/lbfgsb.h"
+#include "PhysTools/optimization/lbfgsb/lbfgsb.h"
 #include <cfloat>
 #include <cstring>
 #include <cmath>
@@ -87,7 +87,7 @@ int projgr_(integer *, doublereal *, doublereal *,
 /*                        March  2011 */
 
 /* ============================================================================= */
-/* Subroutine */ int setulb_(integer *n, integer *m, doublereal *x, 
+/* Subroutine */ int setulb_(integer *n, integer *m, doublereal *x,
 	doublereal *l, doublereal *u, integer *nbd, doublereal *scale,
 	doublereal *f, doublereal *g, doublereal *factr, doublereal *pgtol,
 	doublereal *wa, integer *iwa, char *task, integer *iprint,
@@ -97,15 +97,15 @@ int projgr_(integer *, doublereal *, doublereal *,
     integer i__1;
 
     /* Local variables */
-    static integer ld, lr, lt, lz, lwa, lwn, lss, lxp, lws, lwt, lsy, lwy, 
+    static integer ld, lr, lt, lz, lwa, lwn, lss, lxp, lws, lwt, lsy, lwy,
 	    lsnd;
-    extern /* Subroutine */ int mainlb_(integer *, integer *, doublereal *, 
+    extern /* Subroutine */ int mainlb_(integer *, integer *, doublereal *,
 	    doublereal *, doublereal *, integer *, doublereal *, doublereal *, doublereal *,
-	     doublereal *, doublereal *, doublereal *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, integer *, integer *, 
-	    integer *, char *, integer *, char *, logical *, integer *, 
+	     doublereal *, doublereal *, doublereal *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, integer *, integer *,
+	    integer *, char *, integer *, char *, logical *, integer *,
 	    doublereal *);
 
 
@@ -353,25 +353,25 @@ int projgr_(integer *, doublereal *, doublereal *,
     lwa = isave[16];
     mainlb_(n, m, &x[1], &l[1], &u[1], &nbd[1], scale, f, &g[1], factr, pgtol, &wa[
 	    lws], &wa[lwy], &wa[lsy], &wa[lss], &wa[lwt], &wa[lwn], &wa[lsnd],
-	     &wa[lz], &wa[lr], &wa[ld], &wa[lt], &wa[lxp], &wa[lwa], &iwa[1], 
+	     &wa[lz], &wa[lr], &wa[ld], &wa[lt], &wa[lxp], &wa[lwa], &iwa[1],
 	    &iwa[*n + 1], &iwa[(*n << 1) + 1], task, iprint, csave, &lsave[1],
 	     &isave[22], &dsave[1]);
     return 0;
 } /* setulb_ */
 
 /* ======================= The end of setulb ============================= */
-/* Subroutine */ int mainlb_(integer *n, integer *m, doublereal *x, 
+/* Subroutine */ int mainlb_(integer *n, integer *m, doublereal *x,
 	doublereal *l, doublereal *u, integer *nbd, doublereal *scale, doublereal *f,
 	doublereal *g, doublereal *factr, doublereal *pgtol, doublereal *ws, doublereal *
-	wy, doublereal *sy, doublereal *ss, doublereal *wt, doublereal *wn, 
-	doublereal *snd, doublereal *z__, doublereal *r__, doublereal *d__, 
-	doublereal *t, doublereal *xp, doublereal *wa, integer *index, 
+	wy, doublereal *sy, doublereal *ss, doublereal *wt, doublereal *wn,
+	doublereal *snd, doublereal *z__, doublereal *r__, doublereal *d__,
+	doublereal *t, doublereal *xp, doublereal *wa, integer *index,
 	integer *iwhere, integer *indx2, char *task, integer *iprint, char *
 	csave, logical *lsave, integer *isave, doublereal *dsave)
 {
     /* System generated locals */
-    integer ws_dim1, ws_offset, wy_dim1, wy_offset, sy_dim1, sy_offset, 
-	    ss_dim1, ss_offset, wt_dim1, wt_offset, wn_dim1, wn_offset, 
+    integer ws_dim1, ws_offset, wy_dim1, wy_offset, sy_dim1, sy_offset,
+	    ss_dim1, ss_offset, wt_dim1, wt_offset, wn_dim1, wn_offset,
 	    snd_dim1, snd_offset, i__1;
     doublereal d__1, d__2;
 
@@ -389,7 +389,7 @@ int projgr_(integer *, doublereal *, doublereal *,
     static doublereal fold;
     static integer nact;
     static doublereal ddum;
-    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *, 
+    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *,
 	    integer *);
     static integer info, nseg;
     static doublereal time;
@@ -404,57 +404,57 @@ int projgr_(integer *, doublereal *, doublereal *,
     static logical boxed;
     static integer itail;
     static doublereal theta;
-    extern /* Subroutine */ int freev_(integer *, integer *, integer *, 
-	    integer *, integer *, integer *, integer *, logical *, logical *, 
+    extern /* Subroutine */ int freev_(integer *, integer *, integer *,
+	    integer *, integer *, integer *, integer *, logical *, logical *,
 	    logical *, integer *, integer *);
 	extern void dcopy_(integer *, doublereal *,
 	    integer *, doublereal *, integer *);
     static doublereal dnorm;
-    extern /* Subroutine */ int /*timer_(doublereal *),*/ formk_(integer *, 
-	    integer *, integer *, integer *, integer *, integer *, integer *, 
-	    logical *, doublereal *, doublereal *, integer *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, integer *, integer *, 
+    extern /* Subroutine */ int /*timer_(doublereal *),*/ formk_(integer *,
+	    integer *, integer *, integer *, integer *, integer *, integer *,
+	    logical *, doublereal *, doublereal *, integer *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, integer *, integer *,
 	    integer *);
     static integer nskip, iword;
-    extern /* Subroutine */ int formt_(integer *, doublereal *, doublereal *, 
-	    doublereal *, integer *, doublereal *, integer *), subsm_(integer 
-	    *, integer *, integer *, integer *, doublereal *, doublereal *, 
+    extern /* Subroutine */ int formt_(integer *, doublereal *, doublereal *,
+	    doublereal *, integer *, doublereal *, integer *), subsm_(integer
+	    *, integer *, integer *, integer *, doublereal *, doublereal *,
 	    integer *, doublereal *, doublereal *, doublereal *, doublereal *,
 	     doublereal *, doublereal *, doublereal *, doublereal *, integer *
-	    , integer *, integer *, doublereal *, doublereal *, integer *, 
+	    , integer *, integer *, doublereal *, doublereal *, integer *,
 	    integer *);
     static doublereal xstep, stpmx;
-    extern /* Subroutine */ int prn1lb_(integer *, integer *, doublereal *, 
-	    doublereal *, doublereal *, integer *, integer *, doublereal *), 
-	    prn2lb_(integer *, doublereal *, doublereal *, doublereal *, 
-	    integer *, integer *, integer *, integer *, integer *, doublereal 
-	    *, integer *, char *, integer *, integer *, doublereal *, 
-	    doublereal *, ftnlen), prn3lb_(integer *, doublereal *, 
-	    doublereal *, char *, integer *, integer *, integer *, integer *, 
-	    integer *, integer *, integer *, integer *, doublereal *, 
-	    doublereal *, integer *, char *, integer *, doublereal *, 
+    extern /* Subroutine */ int prn1lb_(integer *, integer *, doublereal *,
+	    doublereal *, doublereal *, integer *, integer *, doublereal *),
+	    prn2lb_(integer *, doublereal *, doublereal *, doublereal *,
+	    integer *, integer *, integer *, integer *, integer *, doublereal
+	    *, integer *, char *, integer *, integer *, doublereal *,
+	    doublereal *, ftnlen), prn3lb_(integer *, doublereal *,
+	    doublereal *, char *, integer *, integer *, integer *, integer *,
+	    integer *, integer *, integer *, integer *, doublereal *,
+	    doublereal *, integer *, char *, integer *, doublereal *,
 	    doublereal *, integer *, doublereal *, doublereal *, doublereal *,
 	     ftnlen, ftnlen);
     static integer ileave;
-    extern /* Subroutine */ int errclb_(integer *, integer *, doublereal *, 
-	    doublereal *, doublereal *, integer *, char *, integer *, integer 
+    extern /* Subroutine */ int errclb_(integer *, integer *, doublereal *,
+	    doublereal *, doublereal *, integer *, char *, integer *, integer
 	    *, ftnlen);
     static doublereal cachyt;
     static integer itfile;
     extern /* Subroutine */ int active_(integer *, doublereal *, doublereal *,
-	     integer *, doublereal *, integer *, integer *, logical *, 
-	    logical *, logical *), cauchy_(integer *, doublereal *, 
-	    doublereal *, doublereal *, integer *, doublereal *, integer *, 
-	    integer *, doublereal *, doublereal *, doublereal *, integer *, 
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
-	    doublereal *, integer *, integer *, doublereal *, doublereal *, 
-	    doublereal *, doublereal *, integer *, integer *, doublereal *, 
+	     integer *, doublereal *, integer *, integer *, logical *,
+	    logical *, logical *), cauchy_(integer *, doublereal *,
+	    doublereal *, doublereal *, integer *, doublereal *, integer *,
+	    integer *, doublereal *, doublereal *, doublereal *, integer *,
+	    doublereal *, doublereal *, doublereal *, doublereal *,
+	    doublereal *, integer *, integer *, doublereal *, doublereal *,
+	    doublereal *, doublereal *, integer *, integer *, doublereal *,
 	    integer *, doublereal *);
     static doublereal epsmch;
-    extern /* Subroutine */ int cmprlb_(integer *, integer *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
+    extern /* Subroutine */ int cmprlb_(integer *, integer *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, doublereal *,
 	    doublereal *, doublereal *, doublereal *, doublereal *, integer *,
-	     doublereal *, integer *, integer *, integer *, logical *, 
+	     doublereal *, integer *, integer *, integer *, logical *,
 	    integer *);
     static logical updatd;
     static doublereal sbtime;
@@ -462,19 +462,19 @@ int projgr_(integer *, doublereal *, doublereal *,
     static integer iupdat;
     static doublereal sbgnrm;
     static logical cnstnd;
-    extern /* Subroutine */ int matupd_(integer *, integer *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
-	    doublereal *, integer *, integer *, integer *, integer *, 
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
+    extern /* Subroutine */ int matupd_(integer *, integer *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, doublereal *,
+	    doublereal *, integer *, integer *, integer *, integer *,
+	    doublereal *, doublereal *, doublereal *, doublereal *,
 	    doublereal *);
     static integer nenter;
     static doublereal lnscht;
     extern /* Subroutine */ int lnsrlb_(integer *, doublereal *, doublereal *,
 	     integer *, doublereal *, doublereal *, doublereal *, doublereal *
-	    , doublereal *, doublereal *, doublereal *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, integer *, integer *, 
-	    integer *, integer *, integer *, char *, logical *, logical *, 
+	    , doublereal *, doublereal *, doublereal *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, integer *, integer *,
+	    integer *, integer *, integer *, char *, logical *, logical *,
 	    char *, integer *, doublereal *);
     static integer nintol;
 
@@ -755,7 +755,7 @@ int projgr_(integer *, doublereal *, doublereal *,
 	}
 	prn1lb_(n, m, &l[1], &u[1], &x[1], iprint, &itfile, &epsmch);
 /*        Initialize iwhere & project x onto the feasible set. */
-	active_(n, &l[1], &u[1], &nbd[1], &x[1], &iwhere[1], iprint, &prjctd, 
+	active_(n, &l[1], &u[1], &nbd[1], &x[1], &iwhere[1], iprint, &prjctd,
 		&cnstnd, &boxed);
 /*        The end of the initialization. */
     } else {
@@ -852,7 +852,7 @@ L222:
     timer_(&cpu1);
     cauchy_(n, &x[1], &l[1], &u[1], &nbd[1], &g[1], &indx2[1], &iwhere[1], &t[
 	    1], &d__[1], &z__[1], m, &wy[wy_offset], &ws[ws_offset], &sy[
-	    sy_offset], &wt[wt_offset], &theta, &col, &head, &wa[1], &wa[(*m 
+	    sy_offset], &wt[wt_offset], &theta, &col, &head, &wa[1], &wa[(*m
 	    << 1) + 1], &wa[(*m << 2) + 1], &wa[*m * 6 + 1], &nseg, iprint, &
 	    sbgnrm, &info, &epsmch);
     if (info != 0) {
@@ -954,7 +954,7 @@ L555:
 L666:
     lnsrlb_(n, &l[1], &u[1], &nbd[1], &x[1], f, &fold, &gd, &gdold, &g[1], &
 	    d__[1], &r__[1], &t[1], &z__[1], &stp, &dnorm, &dtd, &xstep, &
-	    stpmx, &iter, &ifun, &iback, &nfgv, &info, task, &boxed, &cnstnd, 
+	    stpmx, &iter, &ifun, &iback, &nfgv, &info, task, &boxed, &cnstnd,
 	    csave, &isave[22], &dsave[17]);
     if (info != 0 || iback >= 20) {
 /*          restore the previous iterate. */
@@ -1084,8 +1084,8 @@ L888:
 L999:
     timer_(&time2);
     time = time2 - time1;
-    prn3lb_(n, &x[1], f, task, iprint, &info, &itfile, &iter, &nfgv, &nintol, 
-	    &nskip, &nact, &sbgnrm, &time, &nseg, word, &iback, &stp, &xstep, 
+    prn3lb_(n, &x[1], f, task, iprint, &info, &itfile, &iter, &nfgv, &nintol,
+	    &nskip, &nact, &sbgnrm, &time, &nseg, word, &iback, &stp, &xstep,
 	    &k, &cachyt, &sbtime, &lnscht, (ftnlen)60, (ftnlen)3);
 L1000:
 /*     Save local variables. */
@@ -1131,8 +1131,8 @@ L1000:
 } /* mainlb_ */
 
 /* ======================= The end of mainlb ============================= */
-/* Subroutine */ int active_(integer *n, doublereal *l, doublereal *u, 
-	integer *nbd, doublereal *x, integer *iwhere, integer *iprint, 
+/* Subroutine */ int active_(integer *n, doublereal *l, doublereal *u,
+	integer *nbd, doublereal *x, integer *iwhere, integer *iprint,
 	logical *prjctd, logical *cnstnd, logical *boxed)
 {
     /* System generated locals */
@@ -1229,7 +1229,7 @@ L1000:
 } /* active_ */
 
 /* ======================= The end of active ============================= */
-/* Subroutine */ int bmv_(integer *m, doublereal *sy, doublereal *wt, integer 
+/* Subroutine */ int bmv_(integer *m, doublereal *sy, doublereal *wt, integer
 	*col, doublereal *v, doublereal *p, integer *info)
 {
     /* System generated locals */
@@ -1238,7 +1238,7 @@ L1000:
     /* Local variables */
     static integer i__, k, i2;
     static doublereal sum;
-    extern /* Subroutine */ int dtrsl_(doublereal *, integer *, integer *, 
+    extern /* Subroutine */ int dtrsl_(doublereal *, integer *, integer *,
 	    doublereal *, integer *, integer *);
 
 /*     ************ */
@@ -1358,7 +1358,7 @@ L1000:
 	sum = 0.;
 	i__2 = *col;
 	for (k = i__ + 1; k <= i__2; ++k) {
-	    sum += sy[k + i__ * sy_dim1] * p[*col + k] / sy[i__ + i__ * 
+	    sum += sy[k + i__ * sy_dim1] * p[*col + k] / sy[i__ + i__ *
 		    sy_dim1];
 /* L50: */
 	}
@@ -1369,17 +1369,17 @@ L1000:
 } /* bmv_ */
 
 /* ======================== The end of bmv =============================== */
-/* Subroutine */ int cauchy_(integer *n, doublereal *x, doublereal *l, 
+/* Subroutine */ int cauchy_(integer *n, doublereal *x, doublereal *l,
 	doublereal *u, integer *nbd, doublereal *g, integer *iorder, integer *
-	iwhere, doublereal *t, doublereal *d__, doublereal *xcp, integer *m, 
-	doublereal *wy, doublereal *ws, doublereal *sy, doublereal *wt, 
-	doublereal *theta, integer *col, integer *head, doublereal *p, 
-	doublereal *c__, doublereal *wbp, doublereal *v, integer *nseg, 
+	iwhere, doublereal *t, doublereal *d__, doublereal *xcp, integer *m,
+	doublereal *wy, doublereal *ws, doublereal *sy, doublereal *wt,
+	doublereal *theta, integer *col, integer *head, doublereal *p,
+	doublereal *c__, doublereal *wbp, doublereal *v, integer *nseg,
 	integer *iprint, doublereal *sbgnrm, integer *info, doublereal *
 	epsmch)
 {
     /* System generated locals */
-    integer wy_dim1, wy_offset, ws_dim1, ws_offset, sy_dim1, sy_offset, 
+    integer wy_dim1, wy_offset, ws_dim1, ws_offset, sy_dim1, sy_offset,
 	    wt_dim1, wt_offset, i__1, i__2;
     doublereal d__1;
 
@@ -1389,12 +1389,12 @@ L1000:
     static doublereal f1, f2, dt, tj, tl, tu, tj0;
     static integer ibp;
     static doublereal dtm;
-    extern /* Subroutine */ int bmv_(integer *, doublereal *, doublereal *, 
+    extern /* Subroutine */ int bmv_(integer *, doublereal *, doublereal *,
 	    integer *, doublereal *, doublereal *, integer *);
     static doublereal wmc, wmp, wmw;
     static integer col2;
     static doublereal dibp;
-    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *, 
+    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *,
 	    integer *);
     static integer iter;
     static doublereal zibp, tsum, dibp2;
@@ -1406,11 +1406,11 @@ L1000:
     static doublereal bkmin;
     static integer nleft;
     extern /* Subroutine */ void dcopy_(integer *, doublereal *, integer *,
-	    doublereal *, integer *), daxpy_(integer *, doublereal *, 
+	    doublereal *, integer *), daxpy_(integer *, doublereal *,
 	    doublereal *, integer *, doublereal *, integer *);
     static doublereal f2_org__;
     static integer nbreak, ibkmin;
-    extern /* Subroutine */ int hpsolb_(integer *, doublereal *, integer *, 
+    extern /* Subroutine */ int hpsolb_(integer *, doublereal *, integer *,
 	    integer *);
     static integer pointr;
     static logical xlower, xupper;
@@ -1883,20 +1883,20 @@ L999:
 } /* cauchy_ */
 
 /* ====================== The end of cauchy ============================== */
-/* Subroutine */ int cmprlb_(integer *n, integer *m, doublereal *x, 
-	doublereal *g, doublereal *ws, doublereal *wy, doublereal *sy, 
-	doublereal *wt, doublereal *z__, doublereal *r__, doublereal *wa, 
-	integer *index, doublereal *theta, integer *col, integer *head, 
+/* Subroutine */ int cmprlb_(integer *n, integer *m, doublereal *x,
+	doublereal *g, doublereal *ws, doublereal *wy, doublereal *sy,
+	doublereal *wt, doublereal *z__, doublereal *r__, doublereal *wa,
+	integer *index, doublereal *theta, integer *col, integer *head,
 	integer *nfree, logical *cnstnd, integer *info)
 {
     /* System generated locals */
-    integer ws_dim1, ws_offset, wy_dim1, wy_offset, sy_dim1, sy_offset, 
+    integer ws_dim1, ws_offset, wy_dim1, wy_offset, sy_dim1, sy_offset,
 	    wt_dim1, wt_offset, i__1, i__2;
 
     /* Local variables */
     static integer i__, j, k;
     static doublereal a1, a2;
-    extern /* Subroutine */ int bmv_(integer *, doublereal *, doublereal *, 
+    extern /* Subroutine */ int bmv_(integer *, doublereal *, doublereal *,
 	    integer *, doublereal *, doublereal *, integer *);
     static integer pointr;
 
@@ -1971,7 +1971,7 @@ L999:
 	    i__2 = *nfree;
 	    for (i__ = 1; i__ <= i__2; ++i__) {
 		k = index[i__];
-		r__[i__] = r__[i__] + wy[k + pointr * wy_dim1] * a1 + ws[k + 
+		r__[i__] = r__[i__] + wy[k + pointr * wy_dim1] * a1 + ws[k +
 			pointr * ws_dim1] * a2;
 /* L32: */
 	    }
@@ -1983,7 +1983,7 @@ L999:
 } /* cmprlb_ */
 
 /* ======================= The end of cmprlb ============================= */
-/* Subroutine */ int errclb_(integer *n, integer *m, doublereal *factr, 
+/* Subroutine */ int errclb_(integer *n, integer *m, doublereal *factr,
 	doublereal *l, doublereal *u, integer *nbd, char *task, integer *info,
 	 integer *k, ftnlen task_len)
 {
@@ -2056,21 +2056,21 @@ L999:
 /* ======================= The end of errclb ============================= */
 /* Subroutine */ int formk_(integer *n, integer *nsub, integer *ind, integer *
 	nenter, integer *ileave, integer *indx2, integer *iupdat, logical *
-	updatd, doublereal *wn, doublereal *wn1, integer *m, doublereal *ws, 
-	doublereal *wy, doublereal *sy, doublereal *theta, integer *col, 
+	updatd, doublereal *wn, doublereal *wn1, integer *m, doublereal *ws,
+	doublereal *wy, doublereal *sy, doublereal *theta, integer *col,
 	integer *head, integer *info)
 {
     /* System generated locals */
-    integer wn_dim1, wn_offset, wn1_dim1, wn1_offset, ws_dim1, ws_offset, 
+    integer wn_dim1, wn_offset, wn1_dim1, wn1_offset, ws_dim1, ws_offset,
 	    wy_dim1, wy_offset, sy_dim1, sy_offset, i__1, i__2, i__3;
 
     /* Local variables */
     static integer i__, k, k1, m2, is, js, iy, jy, is1, js1, col2, dend, pend;
-    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *, 
+    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *,
 	    integer *);
     static integer upcl;
     static doublereal temp1, temp2, temp3, temp4;
-    extern /* Subroutine */ int dpofa_(doublereal *, integer *, integer *, 
+    extern /* Subroutine */ int dpofa_(doublereal *, integer *, integer *,
 	    integer *), dtrsl_(doublereal *, integer *, integer *,
 	    doublereal *, integer *, integer *);
     extern void dcopy_(integer *, doublereal *, integer *, doublereal
@@ -2365,10 +2365,10 @@ L999:
 /* L51: */
 	    }
 	    if (is <= jy + *m) {
-		wn1[is + jy * wn1_dim1] = wn1[is + jy * wn1_dim1] + temp1 - 
+		wn1[is + jy * wn1_dim1] = wn1[is + jy * wn1_dim1] + temp1 -
 			temp3;
 	    } else {
-		wn1[is + jy * wn1_dim1] = wn1[is + jy * wn1_dim1] - temp1 + 
+		wn1[is + jy * wn1_dim1] = wn1[is + jy * wn1_dim1] - temp1 +
 			temp3;
 	    }
 	    jpntr = jpntr % *m + 1;
@@ -2427,7 +2427,7 @@ L999:
     for (is = *col + 1; is <= i__1; ++is) {
 	i__2 = col2;
 	for (js = is; js <= i__2; ++js) {
-	    wn[is + js * wn_dim1] += ddot_(col, &wn[is * wn_dim1 + 1], &c__1, 
+	    wn[is + js * wn_dim1] += ddot_(col, &wn[is * wn_dim1 + 1], &c__1,
 		    &wn[js * wn_dim1 + 1], &c__1);
 /* L74: */
 	}
@@ -2443,17 +2443,17 @@ L999:
 } /* formk_ */
 
 /* ======================= The end of formk ============================== */
-/* Subroutine */ int formt_(integer *m, doublereal *wt, doublereal *sy, 
+/* Subroutine */ int formt_(integer *m, doublereal *wt, doublereal *sy,
 	doublereal *ss, integer *col, doublereal *theta, integer *info)
 {
     /* System generated locals */
-    integer wt_dim1, wt_offset, sy_dim1, sy_offset, ss_dim1, ss_offset, i__1, 
+    integer wt_dim1, wt_offset, sy_dim1, sy_offset, ss_dim1, ss_offset, i__1,
 	    i__2, i__3;
 
     /* Local variables */
     static integer i__, j, k, k1;
     static doublereal ddum;
-    extern /* Subroutine */ int dpofa_(doublereal *, integer *, integer *, 
+    extern /* Subroutine */ int dpofa_(doublereal *, integer *, integer *,
 	    integer *);
 
 /*     ************ */
@@ -2508,7 +2508,7 @@ L999:
 	    ddum = 0.;
 	    i__3 = k1;
 	    for (k = 1; k <= i__3; ++k) {
-		ddum += sy[i__ + k * sy_dim1] * sy[j + k * sy_dim1] / sy[k + 
+		ddum += sy[i__ + k * sy_dim1] * sy[j + k * sy_dim1] / sy[k +
 			k * sy_dim1];
 /* L53: */
 	    }
@@ -2527,9 +2527,9 @@ L999:
 } /* formt_ */
 
 /* ======================= The end of formt ============================== */
-/* Subroutine */ int freev_(integer *n, integer *nfree, integer *index, 
-	integer *nenter, integer *ileave, integer *indx2, integer *iwhere, 
-	logical *wrk, logical *updatd, logical *cnstnd, integer *iprint, 
+/* Subroutine */ int freev_(integer *n, integer *nfree, integer *index,
+	integer *nenter, integer *ileave, integer *indx2, integer *iwhere,
+	logical *wrk, logical *updatd, logical *cnstnd, integer *iprint,
 	integer *iter)
 {
     /* System generated locals */
@@ -2628,7 +2628,7 @@ L999:
 } /* freev_ */
 
 /* ======================= The end of freev ============================== */
-/* Subroutine */ int hpsolb_(integer *n, doublereal *t, integer *iorder, 
+/* Subroutine */ int hpsolb_(integer *n, doublereal *t, integer *iorder,
 	integer *iheap)
 {
     /* System generated locals */
@@ -2741,12 +2741,12 @@ L30:
 } /* hpsolb_ */
 
 /* ====================== The end of hpsolb ============================== */
-/* Subroutine */ int lnsrlb_(integer *n, doublereal *l, doublereal *u, 
-	integer *nbd, doublereal *x, doublereal *f, doublereal *fold, 
-	doublereal *gd, doublereal *gdold, doublereal *g, doublereal *d__, 
-	doublereal *r__, doublereal *t, doublereal *z__, doublereal *stp, 
+/* Subroutine */ int lnsrlb_(integer *n, doublereal *l, doublereal *u,
+	integer *nbd, doublereal *x, doublereal *f, doublereal *fold,
+	doublereal *gd, doublereal *gdold, doublereal *g, doublereal *d__,
+	doublereal *r__, doublereal *t, doublereal *z__, doublereal *stp,
 	doublereal *dnorm, doublereal *dtd, doublereal *xstep, doublereal *
-	stpmx, integer *iter, integer *ifun, integer *iback, integer *nfgv, 
+	stpmx, integer *iter, integer *ifun, integer *iback, integer *nfgv,
 	integer *info, char *task, logical *boxed, logical *cnstnd, char *
 	csave, integer *isave, doublereal *dsave)
 {
@@ -2758,13 +2758,13 @@ L30:
     /* Local variables */
     static integer i__;
     static doublereal a1, a2;
-    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *, 
+    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *,
 	    integer *);
     extern /* Subroutine */ void dcopy_(integer *, doublereal *, integer *,
 	    doublereal *, integer *);
     extern int dcsrch_(doublereal *, doublereal *,
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
-	    doublereal *, doublereal *, char *, integer *, doublereal *, 
+	    doublereal *, doublereal *, doublereal *, doublereal *,
+	    doublereal *, doublereal *, char *, integer *, doublereal *,
 	    ftnlen);
 
     /* Fortran I/O blocks */
@@ -2893,19 +2893,19 @@ L556:
 } /* lnsrlb_ */
 
 /* ======================= The end of lnsrlb ============================= */
-/* Subroutine */ int matupd_(integer *n, integer *m, doublereal *ws, 
-	doublereal *wy, doublereal *sy, doublereal *ss, doublereal *d__, 
-	doublereal *r__, integer *itail, integer *iupdat, integer *col, 
-	integer *head, doublereal *theta, doublereal *rr, doublereal *dr, 
+/* Subroutine */ int matupd_(integer *n, integer *m, doublereal *ws,
+	doublereal *wy, doublereal *sy, doublereal *ss, doublereal *d__,
+	doublereal *r__, integer *itail, integer *iupdat, integer *col,
+	integer *head, doublereal *theta, doublereal *rr, doublereal *dr,
 	doublereal *stp, doublereal *dtd)
 {
     /* System generated locals */
-    integer ws_dim1, ws_offset, wy_dim1, wy_offset, sy_dim1, sy_offset, 
+    integer ws_dim1, ws_offset, wy_dim1, wy_offset, sy_dim1, sy_offset,
 	    ss_dim1, ss_offset, i__1, i__2;
 
     /* Local variables */
     static integer j;
-    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *, 
+    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *,
 	    integer *);
     extern /* Subroutine */ void dcopy_(integer *, doublereal *, integer *,
 	    doublereal *, integer *);
@@ -2974,7 +2974,7 @@ L556:
 	    dcopy_(&j, &ss[(j + 1) * ss_dim1 + 2], &c__1, &ss[j * ss_dim1 + 1]
 		    , &c__1);
 	    i__2 = *col - j;
-	    dcopy_(&i__2, &sy[j + 1 + (j + 1) * sy_dim1], &c__1, &sy[j + j * 
+	    dcopy_(&i__2, &sy[j + 1 + (j + 1) * sy_dim1], &c__1, &sy[j + j *
 		    sy_dim1], &c__1);
 /* L50: */
 	}
@@ -2984,7 +2984,7 @@ L556:
     pointr = *head;
     i__1 = *col - 1;
     for (j = 1; j <= i__1; ++j) {
-	sy[*col + j * sy_dim1] = ddot_(n, &d__[1], &c__1, &wy[pointr * 
+	sy[*col + j * sy_dim1] = ddot_(n, &d__[1], &c__1, &wy[pointr *
 		wy_dim1 + 1], &c__1);
 	ss[j + *col * ss_dim1] = ddot_(n, &ws[pointr * ws_dim1 + 1], &c__1, &
 		d__[1], &c__1);
@@ -3001,8 +3001,8 @@ L556:
 } /* matupd_ */
 
 /* ======================= The end of matupd ============================= */
-/* Subroutine */ int prn1lb_(integer *n, integer *m, doublereal *l, 
-	doublereal *u, doublereal *x, integer *iprint, integer *itfile, 
+/* Subroutine */ int prn1lb_(integer *n, integer *m, doublereal *l,
+	doublereal *u, doublereal *x, integer *iprint, integer *itfile,
 	doublereal *epsmch)
 {
 /*     ************ */
@@ -3035,9 +3035,9 @@ L556:
 } /* prn1lb_ */
 
 /* ======================= The end of prn1lb ============================= */
-/* Subroutine */ int prn2lb_(integer *n, doublereal *x, doublereal *f, 
-	doublereal *g, integer *iprint, integer *itfile, integer *iter, 
-	integer *nfgv, integer *nact, doublereal *sbgnrm, integer *nseg, char 
+/* Subroutine */ int prn2lb_(integer *n, doublereal *x, doublereal *f,
+	doublereal *g, integer *iprint, integer *itfile, integer *iter,
+	integer *nfgv, integer *nact, doublereal *sbgnrm, integer *nseg, char
 	*word, integer *iword, integer *iback, doublereal *stp, doublereal *
 	xstep, ftnlen word_len)
 {
@@ -3088,11 +3088,11 @@ L556:
 
 /* ======================= The end of prn2lb ============================= */
 /* Subroutine */ int prn3lb_(integer *n, doublereal *x, doublereal *f, char *
-	task, integer *iprint, integer *info, integer *itfile, integer *iter, 
-	integer *nfgv, integer *nintol, integer *nskip, integer *nact, 
-	doublereal *sbgnrm, doublereal *time, integer *nseg, char *word, 
-	integer *iback, doublereal *stp, doublereal *xstep, integer *k, 
-	doublereal *cachyt, doublereal *sbtime, doublereal *lnscht, ftnlen 
+	task, integer *iprint, integer *info, integer *itfile, integer *iter,
+	integer *nfgv, integer *nintol, integer *nskip, integer *nact,
+	doublereal *sbgnrm, doublereal *time, integer *nseg, char *word,
+	integer *iback, doublereal *stp, doublereal *xstep, integer *k,
+	doublereal *cachyt, doublereal *sbtime, doublereal *lnscht, ftnlen
 	task_len, ftnlen word_len)
 {
 /*     ************ */
@@ -3127,7 +3127,7 @@ L999:
 } /* prn3lb_ */
 
 /* ======================= The end of prn3lb ============================= */
-/* Subroutine */ int projgr_(integer *n, doublereal *l, doublereal *u, 
+/* Subroutine */ int projgr_(integer *n, doublereal *l, doublereal *u,
 	integer *nbd, doublereal *scale, doublereal *x, doublereal *g, doublereal *sbgnrm)
 {
     /* System generated locals */
@@ -3195,14 +3195,14 @@ L999:
 
 /* ======================= The end of projgr ============================= */
 /* Subroutine */ int subsm_(integer *n, integer *m, integer *nsub, integer *
-	ind, doublereal *l, doublereal *u, integer *nbd, doublereal *x, 
-	doublereal *d__, doublereal *xp, doublereal *ws, doublereal *wy, 
-	doublereal *theta, doublereal *xx, doublereal *gg, integer *col, 
-	integer *head, integer *iword, doublereal *wv, doublereal *wn, 
+	ind, doublereal *l, doublereal *u, integer *nbd, doublereal *x,
+	doublereal *d__, doublereal *xp, doublereal *ws, doublereal *wy,
+	doublereal *theta, doublereal *xx, doublereal *gg, integer *col,
+	integer *head, integer *iword, doublereal *wv, doublereal *wn,
 	integer *iprint, integer *info)
 {
     /* System generated locals */
-    integer ws_dim1, ws_offset, wy_dim1, wy_offset, wn_dim1, wn_offset, i__1, 
+    integer ws_dim1, ws_offset, wy_dim1, wy_offset, wn_dim1, wn_offset, i__1,
 	    i__2;
     doublereal d__1, d__2;
 
@@ -3216,7 +3216,7 @@ L999:
     static integer ibd, col2;
     static doublereal dd_p__, temp1, temp2, alpha;
     extern /* Subroutine */ void dscal_(integer *, doublereal *, doublereal *,
-	    integer *), dcopy_(integer *, doublereal *, integer *, doublereal 
+	    integer *), dcopy_(integer *, doublereal *, integer *, doublereal
 	    *, integer *);
 	extern int dtrsl_(doublereal *, integer *, integer *,
 	    doublereal *, integer *, integer *);
@@ -3469,7 +3469,7 @@ L999:
 	i__2 = *nsub;
 	for (i__ = 1; i__ <= i__2; ++i__) {
 	    k = ind[i__];
-	    d__[i__] = d__[i__] + wy[k + pointr * wy_dim1] * wv[jy] / *theta 
+	    d__[i__] = d__[i__] + wy[k + pointr * wy_dim1] * wv[jy] / *theta
 		    + ws[k + pointr * ws_dim1] * wv[js];
 /* L30: */
 	}
@@ -3606,7 +3606,7 @@ L911:
 } /* subsm_ */
 
 /* ====================== The end of subsm =============================== */
-/* Subroutine */ int dcsrch_(doublereal *f, doublereal *g, doublereal *stp, 
+/* Subroutine */ int dcsrch_(doublereal *f, doublereal *g, doublereal *stp,
 	doublereal *ftol, doublereal *gtol, doublereal *xtol, doublereal *
 	stpmin, doublereal *stpmax, char *task, integer *isave, doublereal *
 	dsave, ftnlen task_len)
@@ -3622,8 +3622,8 @@ L911:
     static integer stage;
     static doublereal finit, ginit, width, ftest, gtest, stmin, stmax, width1;
     static logical brackt;
-    extern /* Subroutine */ int dcstep_(doublereal *, doublereal *, 
-	    doublereal *, doublereal *, doublereal *, doublereal *, 
+    extern /* Subroutine */ int dcstep_(doublereal *, doublereal *,
+	    doublereal *, doublereal *, doublereal *, doublereal *,
 	    doublereal *, doublereal *, doublereal *, logical *, doublereal *,
 	     doublereal *);
 
@@ -3866,7 +3866,7 @@ L911:
 	s_copy(task, "CONVERGENCE", task_len, (ftnlen)11);
     }
 /*     Test for termination. */
-    if (s_cmp(task, "WARN", (ftnlen)4, (ftnlen)4) == 0 || s_cmp(task, "CONV", 
+    if (s_cmp(task, "WARN", (ftnlen)4, (ftnlen)4) == 0 || s_cmp(task, "CONV",
 	    (ftnlen)4, (ftnlen)4) == 0) {
 	goto L1000;
     }
@@ -3915,7 +3915,7 @@ L911:
     *stp = min(*stp,*stpmax);
 /*     If further progress is not possible, let stp be the best */
 /*     point obtained during the search. */
-    if ((brackt && (*stp <= stmin || *stp >= stmax)) || (brackt && stmax - stmin 
+    if ((brackt && (*stp <= stmin || *stp >= stmax)) || (brackt && stmax - stmin
 	    <= *xtol * stmax)) {
 	*stp = stx;
     }
@@ -3946,9 +3946,9 @@ L1000:
 } /* dcsrch_ */
 
 /* ====================== The end of dcsrch ============================== */
-/* Subroutine */ int dcstep_(doublereal *stx, doublereal *fx, doublereal *dx, 
-	doublereal *sty, doublereal *fy, doublereal *dy, doublereal *stp, 
-	doublereal *fp, doublereal *dp, logical *brackt, doublereal *stpmin, 
+/* Subroutine */ int dcstep_(doublereal *stx, doublereal *fx, doublereal *dx,
+	doublereal *sty, doublereal *fy, doublereal *dy, doublereal *stp,
+	doublereal *fp, doublereal *dp, logical *brackt, doublereal *stpmin,
 	doublereal *stpmax)
 {
     /* System generated locals */
@@ -4070,7 +4070,7 @@ L1000:
 	q = gamma - *dx + gamma + *dp;
 	r__ = p / q;
 	stpc = *stx + r__ * (*stp - *stx);
-	stpq = *stx + *dx / ((*fx - *fp) / (*stp - *stx) + *dx) / 2. * (*stp 
+	stpq = *stx + *dx / ((*fx - *fp) / (*stp - *stx) + *dx) / 2. * (*stp
 		- *stx);
 	if ((d__1 = stpc - *stx, fabs(d__1)) < (d__2 = stpq - *stx, fabs(d__2)))
 		 {
@@ -4180,7 +4180,7 @@ L1000:
 	if (*brackt) {
 	    theta = (*fp - *fy) * 3. / (*sty - *stp) + *dy + *dp;
 /* Computing MAX */
-	    d__1 = fabs(theta), d__2 = fabs(*dy), d__1 = max(d__1,d__2), d__2 = 
+	    d__1 = fabs(theta), d__2 = fabs(*dy), d__1 = max(d__1,d__2), d__2 =
 		    fabs(*dp);
 	    s = max(d__1,d__2);
 /* Computing 2nd power */
