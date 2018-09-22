@@ -2,7 +2,7 @@
    Dependencies on the libf2c runtime have been removed.
 */
 
-#include "PhysTools/lbfgsb/lbfgsb.h"
+#include "PhysTools/optimization/lbfgsb/lbfgsb.h"
 #include <cassert>
 #include <cmath>
 
@@ -34,7 +34,7 @@ static integer c__1 = 1;
     static integer j, k;
     static doublereal s, t;
     static integer jm1;
-    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *, 
+    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *,
 	    integer *);
 
 
@@ -120,7 +120,7 @@ L40:
 } /* dpofa_ */
 
 /* ====================== The end of dpofa =============================== */
-/* Subroutine */ int dtrsl_(doublereal *t, integer *ldt, integer *n, 
+/* Subroutine */ int dtrsl_(doublereal *t, integer *ldt, integer *n,
 	doublereal *b, integer *job, integer *info)
 {
     /* System generated locals */
@@ -128,7 +128,7 @@ L40:
 
     /* Local variables */
     static integer j, jj, case__;
-    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *, 
+    extern doublereal ddot_(integer *, doublereal *, integer *, doublereal *,
 	    integer *);
     static doublereal temp;
     extern /* Subroutine */ void daxpy_(integer *, doublereal *, doublereal *,
