@@ -1,20 +1,20 @@
 #include <iostream>
 #include "../PhysTools/autodiff.h"
-#include "../PhysTools/lbfgsb/lbfgsb.h"
+#include "../PhysTools/optimization/lbfgsb/lbfgsb.h"
 
 using namespace phys_tools::lbfgsb;
 
 struct Rosenbrock{
 	double a, b;
 	Rosenbrock(double a, double b):a(a),b(b){}
-	
+
 	template<typename T>
 	T operator()(T x, T y) const{
 		T d1=a-x;
 		T d2=y-x*x;
 		return(d1*d1+b*d2*d2);
 	}
-	
+
 	//related handy property: the minimum function value is always 0
 	std::pair<double,double> minimum() const{
 		return(std::make_pair(a,a*a));
@@ -25,14 +25,17 @@ int main(){
 	std::cout.precision(10);
 	const double xtol=1e-6;
 	const double ftol=1e-10;
-	
+
 	//test a classic
 	{
 		std::cout << "R1:\n";
 		Rosenbrock r(1,100);
-		LBFGSB_Driver driver;
-		driver.addParameter(-3);
-		driver.addParameter(-4);
+		phys_tools::ParameterSet params;
+		params.addParameter("x");
+		params.setParameterValue("x",-3);
+		params.addParameter("y");
+		params.setParameterValue("x",-4);
+		LBFGSB_Driver driver(params);
 		driver.setChangeTolerance(1e-10);
 		driver.setGradientTolerance(1e-10);
 		bool success=driver.minimize(makeSimpleBFGSFunction<2>(r));
@@ -62,9 +65,12 @@ int main(){
 	{
 		std::cout << "R2:\n";
 		Rosenbrock r(2.2,14);
-		LBFGSB_Driver driver;
-		driver.addParameter(7);
-		driver.addParameter(-4);
+		phys_tools::ParameterSet params;
+		params.addParameter("x");
+		params.setParameterValue("x",7);
+		params.addParameter("y");
+		params.setParameterValue("x",-4);
+		LBFGSB_Driver driver(params);
 		driver.setChangeTolerance(1e-10);
 		driver.setGradientTolerance(1e-10);
 		bool success=driver.minimize(makeSimpleBFGSFunction<2>(r));
@@ -94,9 +100,12 @@ int main(){
 	/*{
 		std::cout << "R3:\n";
 		const double a=1, b=100;
-		LBFGSB_Driver driver;
-		driver.addParameter(-3);
-		driver.addParameter(-4);
+		phys_tools::ParameterSet params;
+		params.addParameter("x");
+		params.setParameterValue("x",-3);
+		params.addParameter("y");
+		params.setParameterValue("x",-4);
+		LBFGSB_Driver driver(params);
 		driver.setChangeTolerance(1e-10);
 		driver.setGradientTolerance(1e-10);
 		bool success=driver.minimize(makeSimpleBFGSFunction<2>([=](auto x, auto y){
