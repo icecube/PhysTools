@@ -17,7 +17,7 @@
 
 namespace phys_tools{
 
-//Slightly ugly: CTS is a macro, so it effectively lives in the global namespace, 
+//Slightly ugly: CTS is a macro, so it effectively lives in the global namespace,
 //but it expands to things which are in the phys_tools namespace, which may not
 //be in scope. Putting these utilities in a nested namespace makes it easier for
 //users to bring them into scope with `using namespace phys_tools::cts` rather
@@ -68,28 +68,28 @@ struct field{
 
 namespace detail{
 	template<class... FieldTypes> struct hoboTuple;
-	
+
 	template<>
 	struct hoboTuple<>{
 		static const int nFields=0;
-		
+
 		static void getFieldSizes(size_t sizes[], unsigned int counter){}
 		static void getFieldOffsets(size_t offsets[], unsigned int counter, size_t base){}
 		static void getFieldNames(std::string names[], unsigned int counter){}
 		static void getFieldTypes(hid_t types[], unsigned int counter){}
 		static bool getAutoConvert(size_t){ return(false); }
 	};
-	
+
 	template<unsigned int index, class FieldType, class... OtherFields>
 	struct FieldType_{
 		typedef typename FieldType_<index-1,OtherFields...>::type type;
 	};
-	
+
 	template<class FieldType, class... OtherFields>
 	struct FieldType_<0, FieldType, OtherFields...>{
 		typedef typename FieldType::type type;
 	};
-	
+
 	template<unsigned int index, class FieldType, class... OtherFields>
 	struct getImpl{
 		static typename FieldType_<index,FieldType,OtherFields...>::type get(const hoboTuple<FieldType,OtherFields...>& tup){
@@ -99,7 +99,7 @@ namespace detail{
 			return(getImpl<index-1,OtherFields...>::get(tup.suffix));
 		}
 	};
-	
+
 	template<class FieldType, class... OtherFields>
 	struct getImpl<0,FieldType,OtherFields...>{
 		static typename FieldType_<0,FieldType,OtherFields...>::type get(const hoboTuple<FieldType,OtherFields...>& tup){
@@ -109,32 +109,32 @@ namespace detail{
 			return(tup.field);
 		}
 	};
-	
+
 	template<class FieldType, class... OtherFields>
 	struct hoboTuple<FieldType,OtherFields...>{
 		typedef hoboTuple<OtherFields...> SuffixType;
-		
+
 		typename FieldType::type field;
 		SuffixType suffix;
-		
+
 		static const int nFields=SuffixType::nFields+1;
-		
+
 		hoboTuple() = default;
-		
+
 		template<typename Arg, typename... ArgTypes>
 		hoboTuple(Arg arg, ArgTypes... args):field(arg),suffix(args...){}
-		
+
 		static void getFieldSizes(size_t sizes[], unsigned int counter){
 			sizes[counter++]=sizeof(typename FieldType::type);
 			SuffixType::getFieldSizes(sizes,counter);
 		}
-		
+
 		static void getFieldOffsets(size_t offsets[], unsigned int counter, size_t base){
 			typedef hoboTuple<FieldType,OtherFields...> ThisType;
 			offsets[counter++]=base+offsetof(ThisType,field);
 			SuffixType::getFieldOffsets(offsets,counter,base+offsetof(ThisType,suffix));
 		}
-		
+
 		static void getFieldNames(std::string names[], unsigned int counter){
 			names[counter++]=FieldType::getName();
 			SuffixType::getFieldNames(names,counter);
@@ -151,17 +151,17 @@ namespace detail{
 			return(SuffixType::getAutoConvert(index-1));
 		}
 	};
-	
+
 	template<unsigned int index_, typename type_>
 	struct IndexForNameHolder{
 		static constexpr unsigned int index=index_;
 		typedef type_ type;
 	};
-	
+
 	//fwd decl
 	template<unsigned int index_, typename Name, typename FieldType, typename... OtherFieldTypes>
 	struct IndexForNameImpl;
-	
+
 	//base case
 	template<unsigned int index_, typename Name, typename FieldType>
 	struct IndexForNameImpl<index_,Name,FieldType>{
@@ -175,7 +175,7 @@ namespace detail{
 		static constexpr unsigned int index=underlying_type::index;
 		using type = typename underlying_type::type;
 	};
-	
+
 	//recursive case
 	template<unsigned int index_, typename Name, typename FieldType, typename... OtherFieldTypes>
 	struct IndexForNameImpl{
@@ -189,7 +189,7 @@ namespace detail{
 		static constexpr unsigned int index=underlying_type::index;
 		using type = typename underlying_type::type;
 	};
-	
+
 	template<typename Name, typename... FieldTypes>
 	struct IndexForName{
 	private:
@@ -198,7 +198,7 @@ namespace detail{
 		static constexpr unsigned int index=underlying_type::index;
 		using type = typename underlying_type::type;
 	};
-	
+
 }
 
 struct RecordID{
@@ -207,11 +207,11 @@ struct RecordID{
 	uint32_t subEvent;
     int subEventStream;
 	bool exists;
-	
+
 	bool operator==(const RecordID& other) const{
 		return(run==other.run && event==other.event && subEventStream==other.subEventStream && subEvent==other.subEvent);
 	}
-	
+
 	bool operator<(const RecordID& other) const{
 		if(run<other.run)
 			return(true);
@@ -234,18 +234,18 @@ struct RecordID{
 template<class... FieldTypes>
 struct TableRow{
 	typedef detail::hoboTuple<FieldTypes...> FieldsType;
-	
+
 	RecordID id;
 	FieldsType fields;
-	
+
 	static const int baseFields=5;
 	static const int nFields=baseFields+FieldsType::nFields;
-	
+
 	TableRow() = default;
-	
+
 	template<typename... ArgTypes>
 	TableRow(ArgTypes... args):fields(args...){}
-	
+
 	static void getFieldSizes(size_t sizes[]){
 		sizes[0]=sizeof(uint32_t);
 		sizes[1]=sizeof(uint32_t);
@@ -254,7 +254,7 @@ struct TableRow{
 		sizes[4]=sizeof(bool);
 		FieldsType::getFieldSizes(sizes,baseFields);
 	}
-	
+
 	static void getFieldOffsets(size_t offsets[]){
 		typedef TableRow<FieldTypes...> ThisType;
 		offsets[0]=offsetof(ThisType,id.run);
@@ -264,7 +264,7 @@ struct TableRow{
 		offsets[4]=offsetof(ThisType,id.exists);
 		FieldsType::getFieldOffsets(offsets,baseFields,offsetof(ThisType,fields));
 	}
-	
+
 	static void getFieldNames(std::string names[nFields]){
 		names[0]="Run";
 		names[1]="Event";
@@ -288,25 +288,25 @@ struct TableRow{
 			return(false);
 		return(FieldsType::getAutoConvert(fieldIndex-baseFields));
 	}
-	
+
 	template<unsigned int index>
 	typename detail::FieldType_<index,FieldTypes...>::type get() const{
 		static_assert(index<=FieldsType::nFields,"Attempt to access out of range column");
 		return(detail::getImpl<index,FieldTypes...>::get(fields));
 	}
-	
+
 	template<unsigned int index>
 	typename detail::FieldType_<index,FieldTypes...>::type& get(){
 		static_assert(index<=FieldsType::nFields,"Attempt to access out of range column");
 		return(detail::getImpl<index,FieldTypes...>::get(fields));
 	}
-	
+
 	template<typename Name, typename Info=detail::IndexForName<Name,FieldTypes...>>
 	const typename Info::type get() const{
 		static_assert(Info::index<=FieldsType::nFields,"Attempt to access out of range column");
 		return(detail::getImpl<Info::index,FieldTypes...>::get(fields));
 	}
-	
+
 	template<typename Name, typename Info=detail::IndexForName<Name,FieldTypes...>>
 	typename Info::type get(){
 		static_assert(Info::index<=FieldsType::nFields,"Attempt to access out of range column");
@@ -355,13 +355,13 @@ namespace detail{
 		for(size_t i=0, n=data.size(); i<n; i++)
 			memcpy(buf_ptr+i*fieldSize, (char*)&data[i]+fieldOffset, fieldSize);
 
-		H5Tconvert(sourceType,targetType,data.size(),buf_ptr,NULL,H5P_DEFAULT);	
+		H5Tconvert(sourceType,targetType,data.size(),buf_ptr,NULL,H5P_DEFAULT);
 
 		for(size_t i=0, n=data.size(); i<n; i++)
 			memcpy((char*)&data[i]+fieldOffset, buf_ptr+i*fieldSize, fieldSize);
 	}
 } //namespace detail
-	
+
 ///Get the set of tables which are at the given location in an HDF5 file
 ///\param file the file in which to search
 ///\param loc the path of the location in the file to search
@@ -383,10 +383,10 @@ void readTable(hid_t tableLoc, const std::string& tableName, std::map<RecordID,E
 	size_t tableRowSize;
 	H5TBget_field_info(tableLoc,tableName.c_str(),availableFieldNames.get(),availableFieldSizes.get(),availableFieldOffsets.get(),&tableRowSize);
 	//TODO: check for errors
-	
+
 	std::unique_ptr<std::string[]> requestedFieldNames(new std::string[T::nFields]);
 	T::getFieldNames(requestedFieldNames.get());
-	
+
 	int fieldIndices[T::nFields];
 	size_t fieldSizes[T::nFields], fieldOffsets[T::nFields];
 	hid_t expectedFieldTypes[T::nFields], actualFieldTypes[T::nFields];
@@ -425,7 +425,7 @@ void readTable(hid_t tableLoc, const std::string& tableName, std::map<RecordID,E
 				H5Tclose(types[i]);
 		}
 	} actualFieldTypesCleanup(actualFieldTypes,T::nFields);
-	
+
 	std::vector<unsigned int> indicesToConvert;
 	for(unsigned int i=T::baseFields; i<T::nFields; i++){
 		//if the on-disk and in-memory types don't match and the user has allowed auto-conversion
@@ -447,7 +447,7 @@ void readTable(hid_t tableLoc, const std::string& tableName, std::map<RecordID,E
 						newidx=H5Tget_member_index(expectedFieldTypes[i],name);
 						if(newidx<0)
 							reason << "Value '" << name << "' (=" << oldval << ") from source (on-disk) enum type not found in target (in-memory) type" << std::endl;
-		
+
 						free(name);
 					}
 				}
@@ -464,7 +464,7 @@ void readTable(hid_t tableLoc, const std::string& tableName, std::map<RecordID,E
 	if(!recordsPerBlock)
 		recordsPerBlock=1;
 	std::vector<T> intermediate(recordsPerBlock);
-	
+
 	hsize_t recordsRead=0;
 	while(recordsRead<nRecords){
 		hsize_t toRead=recordsPerBlock;
