@@ -4,10 +4,10 @@
 #include <PhysTools/likelihood/weighting.h>
 
 namespace phys_tools{
-	
+
 ///Tilt a spectrum by an incremental powerlaw index about a precomputed median energy
-///\tparam Event the type of event object to be weighted. Must have a numeric 
-///              member named 'primaryEnergy'. 
+///\tparam Event the type of event object to be weighted. Must have a numeric
+///              member named 'primaryEnergy'.
 ///\tparam T the type to use when computing weights
 template<typename Event, typename T>
 struct powerlawTiltWeighter : public GenericWeighter<powerlawTiltWeighter<Event,T>>{
@@ -18,16 +18,16 @@ public:
 	using result_type=T;
 	powerlawTiltWeighter(double me, T dg):
 	medianEnergy(me),deltaIndex(dg){}
-	
+
 	result_type operator()(const Event& e) const{
         //only attempt to compute this is we have a primary energy!
         result_type weight=(e.primaryEnergy?pow(e.primaryEnergy/medianEnergy,-deltaIndex):1);
 		return(weight);
 	}
 };
-	
+
 ///Apply an exponential cutoff with a given characteristic energy
-///\tparam Event the type of event object to be weighted. Must have a numeric 
+///\tparam Event the type of event object to be weighted. Must have a numeric
 ///              member named 'primaryEnergy'.
 ///\tparam T the type to use when computing weights
 template<typename Event, typename T>
@@ -38,16 +38,16 @@ public:
 	using result_type=T;
 	expCutoffWeighter(T ce):
 	cutoffEnergy(ce){}
-	
+
 	result_type operator()(const Event& e) const{
         //only attempt to compute this is we have a primary energy!
         result_type weight=(e.primaryEnergy?exp(-e.primaryEnergy/cutoffEnergy):1);
 		return(weight);
 	}
 };
-	
+
 ///A log-parabola spectrum
-///\tparam Event the type of event object to be weighted. Must have a numeric 
+///\tparam Event the type of event object to be weighted. Must have a numeric
 ///              member named 'primaryEnergy'.
 ///\tparam T the type to use when computing weights
 template<typename Event, typename T>
@@ -68,9 +68,9 @@ public:
 	}
 };
 
-///Compute weights for a spectrum composed of several discrete segments in energy, 
+///Compute weights for a spectrum composed of several discrete segments in energy,
 ///each with its own normalization.
-///\tparam Event the type of event object to be weighted. Must have a numeric 
+///\tparam Event the type of event object to be weighted. Must have a numeric
 ///              member named 'primaryEnergy', and an integer member for the index
 ///              of the segment to which the event belongs
 ///\tparam T the type to use when computing weights
@@ -85,7 +85,7 @@ public:
 	template<typename Iterator>
 	segmentedWeighter(Iterator segmentBegin, Iterator segmentEnd, U Event::* ptr):
 	segmentWeights(segmentBegin,segmentEnd),segmentIndexPtr(ptr){}
-	
+
 	result_type operator()(const Event& e) const{
 		//only compute if we have weights
 		if(segmentWeights.empty())
@@ -114,14 +114,14 @@ private:
 public:
 	using result_type=T;
 	antiparticleWeighter(T b):balance(b){}
-	
+
 	result_type operator()(const Event& e) const{
 		return((int)e.primaryType<0 ? balance : 2-balance);
 	}
 };
 
 ///Use a member of an event as a weight
-///\tparam Event the type of event object to be weighted. 
+///\tparam Event the type of event object to be weighted.
 ///\tparam T the type to use when computing weights
 ///\tparam U the type of the Event member to be read as the weight
 template<typename Event, typename T, typename U>
@@ -135,7 +135,7 @@ public:
 		return(result_type(e.*cachedPtr));
 	}
 };
-	
+
 } //namespace phys_tools
 
 #endif //PHYS_TOOLS_PHYSICS_WEIGHTERS_H
