@@ -120,7 +120,7 @@ int main(){
 	<std::reference_wrapper<const Event>,4>
 	 (std::make_tuple(obsHist), {std::make_tuple(simHist)},
 	 TrivialPrior(), {1.},
-	 phys_tools::likelihood::simpleDataWeighter(),
+	 phys_tools::likelihood::simpleDataWeighterConstructor(),
 	 phys_tools::likelihood::make_weighter_collection(WM),
 	 phys_tools::likelihood::poissonLikelihood(),
 	 seed,1);
