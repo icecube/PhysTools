@@ -642,34 +642,6 @@ namespace detail {
         }
     };
 
-	///Schneider Arguelles Yuan (empirical Bayes) likelihood
-	///Developed by Austin Schneider, Carlos Arguelles, and Tianlu Yuan
-	///*citation needed
-	struct SAYLikelihood {
-		template<typename T>
-		T operator()(double k, likelihood::detail::ExpectationProperties<T> const & expect) const {
-		    std::vector<T> const & weights = expect.weights;
-            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
-			T w_sum = std::accumulate(weights.begin(), weights.end(), T(0), std::plus<T>());
-			T w2_sum = std::accumulate(weightUncertainties.begin(), weightUncertainties.end(), T(0), std::plus<T>());
-
-			if(w_sum <= 0 || w2_sum < 0) {
-				//return(k==0?0:-std::numeric_limits<T>::max());
-				return T(0);
-			}
-
-			if(w2_sum == 0) {
-				return poissonLikelihood()(k, expect);
-			}
-
-			T alpha = (w_sum*w_sum)/w2_sum;
-			T beta = w_sum/w2_sum;
-			T L = likelihood::detail::gammaPriorPoissonLikelihood()(k, alpha, beta);
-
-			return L;
-		}
-	};
-
 	//A bin type for keeping events in their histogram bins
 
 	template<typename DataType>
@@ -932,6 +904,12 @@ namespace likelihood{
 		result_type operator()(const Event& e) const{ return(1.0); }
 	};
 
+    //computes weights for observed data in the most obvious way: each event is given weight 1
+	struct simpleDataWeighterConstructor{
+		template<typename T>
+        simpleDataWeighter operator()(const T& v) const{return simpleDataWeighter();}
+	};
+
 	// fundamental wrapper object for setting up likelihood fits for models by comparing observed data
 	// events to simulated events
 	template<typename Event, typename HistogramsType, typename DataWeighterConstructor, typename WCollection, typename CPrior, typename LFunc, int MaxDerivativeDimension=-1>
@@ -997,7 +975,7 @@ namespace likelihood{
 		LikelihoodProblem<Event, HistogramsType, DataWeighterConstructor, WCollection, CPrior, AltLFunc, MaxDerivativeDimension>
 		makeAlternateLikelihood(const AltLFunc& altlikelihoodFunction) const{
 			using result_type=LikelihoodProblem<Event, HistogramsType, DataWeighterConstructor, WCollection, CPrior, AltLFunc, MaxDerivativeDimension>;
-			return(result_type(observation,simulations,continuousPrior,discretePrior,dataWeightC,simWeightC,altlikelihoodFunction,parameterSeeds,evaluationThreadCount));
+			return(result_type(observation,simulations,continuousPrior,discretePrior,dataWeighterC,simWeightC,altlikelihoodFunction,parameterSeeds,evaluationThreadCount));
 		}
 
 		std::vector<double> getSeed() const{
@@ -1018,12 +996,12 @@ namespace likelihood{
 		const WCollection& getSimulationWeighterCollection() const{ return(simWeightC); }
 
 		//evaluate the (non-prior) contribution to the likelihood from one observation,expectation histogram pair
-		template<typename DataType, typename DataWeighter typename HistogramType>
+		template<typename DataType, typename DataWeighter, typename HistogramType>
 		void evaluateLikelihoodCore(const HistogramType& observation, std::function<likelihood::detail::ExpectationProperties<DataType>(const std::vector<Event>&)>& weighter, DataWeighter& dweighter,
 									const HistogramType& simulation,
 									std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions) const{
 			const auto& likelihoodFunction=this->likelihoodFunction;
-			auto dataWeightAccumulator=[this](double t, const Event& e){ return(t+dweighter(e)); };
+			auto dataWeightAccumulator=[&dweighter](double t, const Event& e){ return(t+dweighter(e)); };
 
 			auto likelihoodContribution=[dataWeightAccumulator,&weighter,&simulation,&likelihoodFunction,&printMtx](typename HistogramType::const_iterator it)->DataType{
 				entryStoringBin<Event> obs=*it;
@@ -1130,7 +1108,7 @@ namespace likelihood{
 				like.evaluateLikelihoodCore(std::get<idx>(observation), weighter, dweighter, std::get<idx>(simulation),
 									   printMtx, pool, contributions);
 				//evaluate for the next pair
-				evaluateLikelihoodIterator<Counter-1, Likelihood, DataType, SimulationWeighter>{}
+				evaluateLikelihoodIterator<Counter-1, Likelihood, DataType, SimulationWeighter, DataWeighter>{}
 					(like, observation, weighter, dweighter, simulation, printMtx, pool, contributions);
 			}
 		};
@@ -1486,7 +1464,7 @@ namespace likelihood{
 			for(size_t dn=minDN; dn<maxDN; dn++){
 				DataType llh=(includePriors?cPrior+discretePrior[dn]:0);
 				params.back()=dn;
-				llh+=evaluateLikelihood<DataType>(simWeightC.template operator()<Event, DataType>(continuousParams),dataWeightC(continuousParams),simulations[dn]);
+				llh+=evaluateLikelihood<DataType>(simWeightC.template operator()<Event, DataType>(continuousParams),dataWeighterC(continuousParams),simulations[dn]);
 
 				if(llh>bestLLH){
 					bestLLH=llh;
@@ -1584,7 +1562,7 @@ namespace likelihood{
 	//Note that the order of the template parameters has been shuffled, to put those which cannot be deduced from the
 	//arguments (Event, DataDimension, and MaxDerivativeDimension) first so that they can be specified while the rest
 	//are left to be deduced, while the order of the function arguments is the same as for the LikelihoodProblem constructor
-	template<typename Event, int MaxDerivativeDimension=-1, typename HistogramsType, typename DataWeighter,
+	template<typename Event, int MaxDerivativeDimension=-1, typename HistogramsType, typename DataWeighterConstructor,
 			 typename... Weighters,
 			 typename CPrior, typename LFunc,
 			 typename LikelihoodType=LikelihoodProblem<Event,HistogramsType,DataWeighterConstructor,likelihood::detail::WeighterCollection<Weighters...>,CPrior,LFunc,MaxDerivativeDimension>>
