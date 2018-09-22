@@ -42,7 +42,12 @@ CLEANED_TEST_SUFFIX=".clean.cpp"
 # the subdirectory in which to stash produced files
 PRODUCT_DIR="products"
 
-COMPILE_COMMAND="$CXX -std=c++11 -g -I../ -L../build -lPhysTools -lboost_filesystem -lboost_regex -lboost_iostreams -lboost_system -lhdf5"
+# fetch any compilation flags set during library configuration
+if [ -f env_vars.sh ]; then
+	. ./env_vars.sh
+fi
+
+COMPILE_COMMAND="$CXX $CXXFLAGS $LDFLAGS"
 CLEAN_COMMAND_FILE="clean_fail.sed"
 
 NAME_FILTER_REGEX='\('$COMPILE_FAIL_FLAG'\)*'$TEST_SUFFIX'$'
