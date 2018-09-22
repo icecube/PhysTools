@@ -1,34 +1,26 @@
 #ifndef LF_LIKELIHOOD_H
 #define LF_LIKELIHOOD_H
 
-#define BOOST_RESULT_OF_USE_DECLTYPE
-
 #include <cmath>
+#include <deque>
 #include <functional>
 #include <numeric>
 #include <random>
-
-#ifdef __APPLE__
-    #include <xmmintrin.h>
-#elif __linux__
-    #include <stdexcept>
-#endif
-
+#include <stdexcept>
+#include <tuple>
 #include <type_traits>
 #include <vector>
-#include <deque>
-#include <cfenv>
 
 #include <boost/math/constants/constants.hpp>
+
 #include <boost/mpl/if.hpp>
 
-#include "../lbfgsb/lbfgsb.h"
+#include "../optimization/lbfgsb/lbfgsb.h"
 
 #include "../histogram.h"
-#include "../brent.h"
-#include "../residuals.h"
 
 #include "../autodiff.h"
+#include "../root_finding.h"
 #include "../ThreadPool.h"
 
 namespace phys_tools{
@@ -50,36 +42,304 @@ namespace likelihood{
 		using type=typename std::reference_wrapper<T>;
 	};
 
-    template <class InIt>
-    typename std::iterator_traits<InIt>::value_type accumulate(InIt begin, InIt end) {
-        typedef typename std::iterator_traits<InIt>::value_type real;
-        real sum = real(0);
-        real running_error = real(0);
-        real temp;
-        real difference;
+// Implementation details for likelihoods
+namespace detail {
 
-        for (; begin != end; ++begin) {
-            difference = *begin;
-            difference -= running_error;
-            temp = sum;
-            temp += difference;
-            running_error = temp;
-            running_error -= sum;
-            running_error -= difference;
-            sum = std::move(temp);
-        }
-        return sum;
-    };
+	// Check for a bad weight
+	// Returns true if the weight is bad
+	template <typename T>
+	struct CheckBadWeight {
+		bool operator()(const T& w) const{
+			return std::isnan(w) || w<0.0;
+		}
+	};
+
+	// Special case for autodiff
+	// Returns true if the weight or its derivative is bad
+	template<unsigned int Dim, typename T>
+	struct CheckBadWeight<phys_tools::autodiff::FD<Dim, T>> {
+		using result_type=phys_tools::autodiff::FD<Dim, T>;
+		bool operator()(const result_type& val) const{
+			bool res = CheckBadWeight<T>()(val.value());
+			for(unsigned int i=0; i<Dim && !res; i++)
+				res |= std::isnan(val.derivative(i));
+			return res;
+		}
+	};
+
+	// Zero weights (please don't use this)
+	struct NullWeighter {
+		template <typename Event, typename T>
+		T operator()(const Event& e) const{
+			return T(0);
+		}
+	};
+
+	// Estimate the weight uncertainty as the square of the weight
+	struct WeightsSqUncertaintyWeighter {
+		template <typename Event, typename T>
+		T operator()(const Event& e, const T& w) const{
+			return w*w;
+		}
+	};
+
+	// Properties of the weighted expectation
+	// Weights and their uncertainties
+	template<typename DataType>
+	struct ExpectationProperties {
+		std::vector<DataType> weights;
+		std::vector<DataType> weightUncertainties;
+		ExpectationProperties():weights(),weightUncertainties(){};
+		ExpectationProperties(std::vector<DataType> w):weights(w),weightUncertainties(){};
+		ExpectationProperties(std::vector<DataType> w, std::vector<DataType> w2):weights(w),weightUncertainties(w2){};
+	};
+
+	// Computes weights and weight uncertainties for a set of events
+	template<typename Weighter, typename UncertaintyWeighter>
+	struct WeighterUncertaintyWeighterPair {
+		const Weighter weighter;
+		const UncertaintyWeighter uWeighter;
+
+		WeighterUncertaintyWeighterPair(Weighter weighter, UncertaintyWeighter uWeighter):weighter(weighter),uWeighter(uWeighter){};
+
+		template<typename DataType, typename Event>
+		ExpectationProperties<DataType> operator()(std::vector<Event> const & events) const{
+			using RawEvent = typename remove_reference_wrapper<Event>::type;
+			std::vector<DataType> expectationWeights;
+			std::vector<DataType> expectationWeightUncertainties;
+			DataType w;
+			DataType uW;
+			expectationWeights.reserve(events.size());
+			expectationWeightUncertainties.reserve(events.size());
+			for(const RawEvent& e : events){
+				w = weighter(e);
+				uW = uWeighter(e,w);
+				expectationWeights.push_back(w);
+				expectationWeightUncertainties.push_back(uW);
+			}
+			return ExpectationProperties<DataType>(expectationWeights, expectationWeightUncertainties);
+		}
+	};
+
+	// Group param-pack of into pairs of weighterMakers and uncertaintyWeighters
+	// Default uncertaintyWeighter is WeightsSqUncertaintyWeighter
+
+	// Empty basecase
+	template<typename...>
+	std::tuple<> group_weighters(){return std::make_tuple();};
+
+	// Single element basecase
+	template<typename T>
+	std::tuple<std::tuple<T,WeightsSqUncertaintyWeighter>> group_weighters(T t) {
+		return std::make_tuple(std::tuple<T,WeightsSqUncertaintyWeighter>(t, WeightsSqUncertaintyWeighter()));
+	};
+
+	// General case
+	template<typename T, typename U, typename... Args>
+	decltype(std::tuple_cat(std::make_tuple(std::tuple<T,U>(std::declval<T>(),std::declval<U>())), group_weighters(std::declval<Args>()...))) group_weighters(T t, U u, Args... args) {
+		return std::tuple_cat(std::make_tuple(std::tuple<T,U>(t,u)), group_weighters(args...));
+	};
+
+	// Make a useable weighter from  a set of continuousParams, a weighterMaker, and an uncertaintyWeighter.
+	// Returned weighter acts on a vector of events so the cost of using std::function is small
+	template<typename Event, typename DataType, typename WeighterConstructor, typename UncertaintyWeighter>
+	std::function<ExpectationProperties<DataType>(const std::vector<Event>&)> make_property_weighter(std::tuple<WeighterConstructor, UncertaintyWeighter> uwc, std::vector<DataType> continuousParams) {
+		WeighterConstructor wc = std::get<0>(uwc);
+		UncertaintyWeighter uw = std::get<1>(uwc);
+        auto weighter = wc(continuousParams);
+		WeighterUncertaintyWeighterPair<decltype(wc(std::declval<std::vector<DataType>>())),UncertaintyWeighter> wp(std::move(weighter), uw);
+		return [=](const std::vector<Event>& events)->ExpectationProperties<DataType>{
+			return wp.template operator()<DataType>(events);
+		};
+	}
+
+	template<typename... Weighters>
+	struct SwitchableWeighter{
+		static_assert(sizeof...(Weighters)>0,"At least one weighter implementation is required");
+
+		std::tuple<Weighters...> implementations;
+		unsigned int selection;
+
+		SwitchableWeighter(Weighters&&... ws):implementations(ws...),selection(0){}
+
+		template<unsigned int index, typename Event>
+		struct evaluator{
+			double operator()(const SwitchableWeighter& sw, const Event& e) const{
+				if(index==sw.selection)
+					return(std::get<index>(sw.implementations)(e));
+				return(evaluator<index+1,Event>()(sw,e));
+			}
+		};
+
+		template<typename Event> //invalid index case to stop template recursion
+		struct evaluator<sizeof...(Weighters),Event>{
+			double operator()(const SwitchableWeighter& sw, const Event& e) const{
+				__builtin_unreachable();
+			}
+		};
+
+        template<typename Event>
+		double operator()(const Event& e) const{
+			return(evaluator<0,Event>()(*this,e));
+		}
+
+		void setWeighter(unsigned int index){
+			if(index>=sizeof...(Weighters))
+				throw std::logic_error("Out of range weighter index");
+			selection=index;
+		}
+	};
+
+	// A Collection of weighterMakers and uncertaintyWeighters stored as pairs(using std::tuple)
+	// operator() produces a weighter usable on a set of events
+	// setWeighter switches between pairs used to make the weighter
+	template<typename... Weighters>
+	struct WeighterCollection {
+		static_assert(sizeof...(Weighters)>0,"At least one weighter implementation is required");
+
+		typedef decltype(group_weighters(std::declval<Weighters>()...)) tuple_type;
+		tuple_type implementations;
+
+		unsigned int selection;
+
+		WeighterCollection(Weighters... ws):implementations(group_weighters(ws...)),selection(0){}
+
+		template<unsigned int index, typename Event, typename DataType>
+		struct evaluator{
+			std::function<ExpectationProperties<DataType>(const std::vector<Event>&)> operator()(const WeighterCollection& sw, const std::vector<DataType>& continuousParams) const{
+				if(index==sw.selection) {
+					return make_property_weighter<Event>(std::get<index>(sw.implementations), continuousParams);
+				}
+				return(evaluator<index+1,Event,DataType>()(sw,continuousParams));
+			}
+		};
+
+		template<typename Event, typename DataType>
+		struct evaluator<std::tuple_size<tuple_type>::value, Event, DataType>{
+			std::function<ExpectationProperties<DataType>(const std::vector<Event>&)> operator()(const WeighterCollection& sw, const std::vector<DataType> & continuousParams) const{
+				throw std::logic_error("Out of range weighter index");
+			 }
+		};
+
+		template<typename Event, typename DataType>
+		std::function<ExpectationProperties<DataType>(const std::vector<Event>&)> operator()(const std::vector<DataType> continuousParams) const{
+			return(evaluator<0,Event,DataType>()(*this,continuousParams));
+		}
+
+		void setWeighter(unsigned int index){
+			if(index>=sizeof...(Weighters))
+				throw std::logic_error("Out of range weighter index");
+			selection=index;
+		}
+	};
+
+	// Compute the sum using the Kahan Summation Algorithm
+	// https://en.wikipedia.org/wiki/Kahan_summation_algorithm
+	template <class InIt>
+	typename std::iterator_traits<InIt>::value_type accumulate(InIt begin, InIt end) {
+		typedef typename std::iterator_traits<InIt>::value_type real;
+		real sum = real(0);
+		real running_error = real(0);
+		real temp;
+		real difference;
+
+		for (; begin != end; ++begin) {
+			difference = *begin;
+			difference -= running_error;
+			temp = sum;
+			temp += difference;
+			running_error = temp;
+			running_error -= sum;
+			running_error -= difference;
+			sum = std::move(temp);
+		}
+		return sum;
+	};
+
+	// compute log(1+x) without losing precision for small values of x
+	template<typename T>
+	T LogOnePlusX(T x)
+	{
+		if (x <= -1.0)
+		{
+			std::stringstream os;
+			os << "Invalid input argument (" << x
+			   << "); must be greater than -1.0";
+			throw std::invalid_argument( os.str() );
+		}
+
+		using std::abs;
+		using std::log;
+		using std::pow;
+		if (abs(x) > 1e-4)
+		{
+			// x is large enough that the obvious evaluation is OK
+			return log(1.0 + x);
+		}
+
+		// Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
+		// Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
+		return x-pow(x,2.0)/2.0+pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+	};
+
+	template<typename T>
+	T LogOneMinusX(T x)
+	{
+		if (x <= -1.0)
+		{
+			std::stringstream os;
+			os << "Invalid input argument (" << x
+			   << "); must be greater than -1.0";
+			throw std::invalid_argument( os.str() );
+		}
+
+		using std::abs;
+		using std::log;
+		using std::pow;
+		if (abs(x) > 1e-4)
+		{
+			// x is large enough that the obvious evaluation is OK
+			return log(1.0 - x);
+		}
+
+		// Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
+		// Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
+		return -x-pow(x,2.0)/2.0-pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+	};
+
+	// A poisson likelihood with gamma distribution prior
+	struct gammaPriorPoissonLikelihood {
+		template<typename T>
+		T operator()(double k, T const & alpha, T const & beta) {
+			std::array<T,5> items;
+			items[0] = alpha*log(beta);
+			items[1] = lgamma(k+alpha);
+			items[2] = -lgamma(k+1);
+			items[3] = -(k+alpha)*LogOnePlusX(beta);
+			items[4] = -lgamma(alpha);
+			return accumulate(items.begin(), items.end());
+		}
+	};
+
+} // namespace detail
+
+	// Convenience function for creating a WeighterCollection
+	template<typename... Weighters>
+	phys_tools::likelihood::detail::WeighterCollection<Weighters...> make_weighter_collection(Weighters... ws) {
+		return phys_tools::likelihood::detail::WeighterCollection<Weighters...>(ws...);
+	}
 
 	//Frequently used likelihood functions
 
 	struct poissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, T const & lambda, T const & w2_sum) const{
+		T operator()(double dataCount, likelihood::detail::ExpectationProperties<T> const & expect) const {
+			std::vector<T> const & simulationWeights = expect.weights;
+			T lambda=std::accumulate(simulationWeights.begin(),simulationWeights.end(),T(0),std::plus<T>());
 			if(lambda==0)
-                return(dataCount==0?0:-std::numeric_limits<T>::max());
-			//return(0);
+				return(0);
 			//would this be more correct?
+			//return(dataCount==0?0:-std::numeric_limits<T>::max());
 			T sum(lambda);
 			sum+=lgamma(dataCount+1);
 			return(dataCount*log(lambda)-sum);
@@ -88,7 +348,9 @@ namespace likelihood{
 
 	struct dimaLikelihood{
 		template<typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights, int n_events) const{
+		T operator()(double dataCount, likelihood::detail::ExpectationProperties<T> const & expect) const {
+		    std::vector<T> const & simulationWeights = expect.weights;
+            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
 			//std::cout << "   " << dataCount << " observed events compared to " << simulationWeights.size() << " simulated events" << '\n';
 			using std::abs; //we want access to std::abs for things like doubles so that we can also find things under the same name via ADL
 
@@ -156,7 +418,7 @@ namespace likelihood{
 				else{
 					//Try the N-R step
 					lambda_i-=(dataCount/z-ssum)/(dataCount/(z*z)+ssum2);
-					//std::cout << "    N-R stepped to " << std::setprecision(16) << lambda_i << std::setprecision(6) << std::endl;
+					//std::cout << "	N-R stepped to " << std::setprecision(16) << lambda_i << std::setprecision(6) << std::endl;
 					if(lambda_i>lambda_i_max)
 						lambda_i=(lambda_i_max+lambda_i_last)/2;
 					else if(lambda_i<lambda_i_min)
@@ -171,10 +433,10 @@ namespace likelihood{
 				//	ssum+=1/(t_ij+lambda_i);
 				//T R_i=(dataCount/(1-lambda_i)-ssum);
 
-				//std::cout << "    labmda_i now " << std::setprecision(16) << lambda_i << std::setprecision(6) << std::endl;
-				//std::cout << "     R_i_last = " << R_i_last << std::endl;
+				//std::cout << "	labmda_i now " << std::setprecision(16) << lambda_i << std::setprecision(6) << std::endl;
+				//std::cout << "	 R_i_last = " << R_i_last << std::endl;
 				//assert(!std::isinf((double)R_i_last));
-				//std::cout << "     R_i = " << R_i << std::endl;
+				//std::cout << "	 R_i = " << R_i << std::endl;
 				if(n++>100){
 					assert(abs(R_i_last)<10*root_tol); //root must not be too poor
 					break;
@@ -186,13 +448,13 @@ namespace likelihood{
 //			for(auto w_ij : simulationWeights){
 //				//log(t_ij)-log(t_ij+lambda_i) = -log(w_ij)-log(1/w_ij+lambda_i)
 //				llh-=log(w_ij)+log(1/w_ij+lambda_i);
-//				//std::cout << "    w: " << w_ij << ' ' << llh << std::endl;
+//				//std::cout << "	w: " << w_ij << ' ' << llh << std::endl;
 //			}
 			for(auto t_ij : t_i)
 				llh+=log(t_ij)-log(t_ij+lambda_i);
 			if(dataCount)
 				llh+=dataCount*-log(1-lambda_i);
-			//std::cout << "    dataCount=" << dataCount << " log(1-lambda_i)=" << log(1-lambda_i) << '\n';
+			//std::cout << "	dataCount=" << dataCount << " log(1-lambda_i)=" << log(1-lambda_i) << '\n';
 			//std::cout << "   llh=" << llh << '\n';
 			return(llh);
 		}
@@ -200,7 +462,9 @@ namespace likelihood{
 
 	struct chi2Likelihood{
 		template<typename T>
-		T operator()(unsigned int dataCount, const std::vector<T>& expectationWeights, int n_events) const{
+		T operator()(double dataCount, likelihood::detail::ExpectationProperties<T> const & expect) const {
+		    std::vector<T> const & expectationWeights = expect.weights;
+            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
 			T exp=std::accumulate(expectationWeights.begin(),expectationWeights.end(),T(0),std::plus<T>());
 			if(exp>0){
 				T diff=dataCount-exp;
@@ -212,7 +476,9 @@ namespace likelihood{
 
 	struct saturatedPoissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights, int n_events) const{
+		T operator()(double dataCount, likelihood::detail::ExpectationProperties<T> const & expect) const {
+		    std::vector<T> const & simulationWeights = expect.weights;
+            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
 			if(dataCount==0)
 				return(0);
 			T sum(dataCount);
@@ -227,7 +493,9 @@ namespace likelihood{
 	///http://dx.doi.org/10.1016/j.nima.2012.06.021
 	struct bohmZechLikelihood{
 		template<typename T>
-		T operator()(double dataCount, const std::vector<T>& simulationWeights) const{
+		T operator()(double dataCount, likelihood::detail::ExpectationProperties<T> const & expect) const {
+		    std::vector<T> const & simulationWeights = expect.weights;
+            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
 			//having an observation where there is no simulation is a problem, but
 			//we can't really solve it in his context, so we return 0 to leave
 			//the likelihood unaffected
@@ -254,716 +522,14 @@ namespace likelihood{
 		}
 	};
 
-    template<typename DataType>
-    DataType compute_barlow_ti(double di, const std::vector<unsigned int>& ai, const std::vector<DataType>& wi) {
-        using T=DataType;
-        auto max_wi_it = std::max_element(wi.begin(), wi.end());
-        unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
-        T lower_bound = -T(1.0) / T(*max_wi_it);
-        T upper_bound(1.0);
-        T tol(1e-10);
-
-        std::function<T(T)> func = [&](T ti)->T{
-            T result = T(di) / (T(1) - ti);
-            std::vector<T> results(ai.size(), T(0));
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                results[j] = (wi[j]*ai[j]) / (T(1)+wi[j]*ti);
-            }
-            return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
-        };
-
-        T ti(brent::zero(lower_bound, upper_bound, tol, func));
-        return ti;
-    };
-
-    template<typename DataType>
-    struct compute_barlow_LLH {
-        using T=DataType;
-        DataType operator()(double di, const std::vector<unsigned int>& ai, const std::vector<DataType>& wi) {
-            std::vector<T> Ai(ai.size());
-            T ti(1);
-            if(di > 0) {
-                std::function<T(T)> func = [&](T ti)->T{
-                    T result = T(di) / (T(1) - ti);
-                    std::vector<T> results(ai.size(), T(0));
-                    for(unsigned int j=0; j<ai.size(); ++j) {
-                        results[j] = (wi[j]*ai[j]) / (T(1)+wi[j]*ti);
-                    }
-                    return result - std::accumulate(results.begin(), results.end(), T(0), std::plus<T>());
-                };
-
-                auto max_wi_it = std::max_element(wi.begin(), wi.end());
-                unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
-                T lower_bound = -T(1.0) / T(*max_wi_it);
-                T upper_bound(1.0);
-                T tol(1e-10);
-
-
-                ti = compute_barlow_ti(di, ai, wi);
-
-                // Special case: MC source with the largest strength has zero MC events
-                if(ai[max_wi_i] == 0) {
-                    T Aki = T(di) / (T(1.0) + T(*max_wi_it));
-                    for(unsigned int j=0; j<ai.size(); ++j) {
-                        if(j == max_wi_i) {
-                            continue;
-                        }
-                        if(*max_wi_it == wi[j]) {
-                            Aki = T(0);
-                            break;
-                        }
-                        Aki -= wi[j]*ai[j]/(*max_wi_it - wi[j]);
-                    }
-                    if(Aki < 0)
-                        Aki = T(0);
-                    Ai[max_wi_i] = Aki;
-                    if(Aki > T(0)) {
-                        ti = lower_bound;
-                        for(unsigned int j=0; j<ai.size(); ++j) {
-                            if(j == max_wi_i)
-                                continue;
-                            Ai[j] = ai[j] / (T(1)+wi[j]*ti);
-                        }
-                    }
-                }
-                else {
-                    for(unsigned int j=0; j<ai.size(); ++j) {
-                        Ai[j] = ai[j] / (T(1)+wi[j]*ti);
-                    }
-                }
-            }
-            else {
-                //std::cout << "no data" << std::endl;
-                for(unsigned int j=0; j<ai.size(); ++j) {
-                    Ai[j] = ai[j] / (T(1)+wi[j]*ti);
-                }
-            }
-
-            T f(0);
-            T sum(0);
-
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                if(Ai[j] < T(0))
-                    Ai[j] = T(0);
-                f += wi[j]*Ai[j];
-                sum += ai[j]*log(Ai[j]) - Ai[j] - lgamma(ai[j]+T(1));
-            }
-            sum += T(di)*log(f) - f - lgamma(T(di)+T(1));
-
-            return sum;
-        }
-    };
-
-    template<unsigned int Dim, typename T>
-    struct compute_barlow_LLH<phys_tools::autodiff::FD<Dim, T>> {
-        using result_type=phys_tools::autodiff::FD<Dim, T>;
-        result_type operator()(double di, const std::vector<unsigned int>& ai, const std::vector<result_type>& dwi) {
-            std::vector<T> wi(dwi.size());
-            for(unsigned int j; j<dwi.size(); ++j) {
-                wi[j] = dwi[j].value();
-            }
-
-            bool special_case = false;
-            auto max_wi_it = std::max_element(wi.begin(), wi.end());
-            unsigned int max_wi_i = std::distance(wi.begin(), max_wi_it);
-            T lower_bound = -T(1.0) / T(*max_wi_it);
-            T ti(1);
-            result_type dti(1);
-
-            if(di == 0) {
-                ti = T(1);
-                dti = ti;
-                const unsigned int n=phys_tools::autodiff::detail::dimensionExtractor<phys_tools::autodiff::FD,Dim,T>::nVars(dti);
-                for(unsigned int i; i<n; ++i) {
-                    dti.setDerivative(i, T(0));
-                }
-            }
-            else
-                ti = compute_barlow_ti<T>(di, ai, wi);
-
-            std::vector<T> Ai(ai.size());
-
-            // Special case: MC source with the largest strength has zero MC events
-            if(ai[max_wi_i] == 0) {
-                T Aki = T(di) / (T(1.0) + T(*max_wi_it));
-                for(unsigned int j=0; j<ai.size(); ++j) {
-                    if(j == max_wi_i) {
-                        continue;
-                    }
-                    if(*max_wi_it == wi[j]) {
-                        Aki = T(0);
-                        break;
-                    }
-                    Aki -= wi[j]*ai[j]/(*max_wi_it - wi[j]);
-                }
-                if(Aki < 0)
-                    Aki = T(0);
-                Ai[max_wi_i] = Aki;
-                if(Aki > T(0)) {
-                    ti = lower_bound;
-                    special_case = true;
-                    for(unsigned int j=0; j<ai.size(); ++j) {
-                        if(j == max_wi_i)
-                            continue;
-                        Ai[j] = ai[j] / (T(1)+wi[j]*ti);
-                    }
-                }
-                else {
-                    for(unsigned int j=0; j<ai.size(); ++j) {
-                        Ai[j] = ai[j] / (T(1)+wi[j]*ti);
-                    }
-                }
-            }
-            else {
-                for(unsigned int j=0; j<ai.size(); ++j) {
-                    Ai[j] = ai[j] / (T(1)+wi[j]*ti);
-                }
-            }
-            dti = ti;
-
-            T fi(0);
-            T Li(0);
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                if(Ai[j] < T(0))
-                    Ai[j] = T(0);
-                fi += wi[j]*Ai[j];
-                Li += ai[j]*log(Ai[j]) - Ai[j] - lgamma(ai[j]+T(1));
-            }
-            Li += T(di)*log(fi) - fi - lgamma(T(di)+T(1));
-
-            result_type dfi(fi);
-            result_type dLi(Li);
-            std::vector<result_type> dAi;
-            for(unsigned int j=0; j<ai.size(); ++j) {
-                dAi.push_back(result_type(Ai[j]));
-            }
-
-            const unsigned int n=phys_tools::autodiff::detail::dimensionExtractor<phys_tools::autodiff::FD,Dim,T>::nVars(dti);
-            for(unsigned int i; i<n; ++i) {
-                T dt(0);
-                T dt_den(0);
-                T dA(0);
-                T tmp(0);
-                if(di>0) {
-                    if(special_case) {
-                        dt = T(1)/pow(wi[max_wi_i],T(2)) * dwi[max_wi_i].derivative(i);
-                    }
-                    else{
-                        if(di > T(0)) {
-                            for(unsigned int j=0; j<ai.size(); ++j) {
-                                tmp = (wi[j]*ai[j])/pow(T(1)+wi[j]*ti, T(2));
-                                dt += dwi[j].derivative(i) * (Ai[j] - tmp*ti);
-                                dt_den += (pow(fi, T(2))/di + tmp*wi[j]);
-                            }
-                            dt /= dt_den;
-                        }
-                    }
-                }
-                for(unsigned int j=0; j<ai.size(); ++j) {
-                    if(!special_case || j!=max_wi_i) {
-                        dAi[j].setDerivative(i,-T(ai[j])/pow(T(1)+wi[j]*ti,T(2))*(dwi[j].derivative(i)*ti+dt));
-                        dA += dAi[j].derivative(i);
-                    }
-                }
-                if(special_case) {
-                    dAi[max_wi_i].setDerivative(i, -di/pow(T(1)+wi[max_wi_i], T(2)) - dA);
-                }
-
-                dti.setDerivative(i, dt);
-                if(di>T(0)) {
-                    dfi.setDerivative(i, dt*pow(fi,T(2))/di);
-                }
-                else {
-                    T df(0);
-                    for(unsigned int j=0; j<ai.size(); ++j) {
-                        df += dwi[j].derivative(i) * Ai[j] + wi[j] * dAi[j].derivative(i);
-                    }
-                    dfi.setDerivative(i, df);
-                }
-                T dL((di/fi-T(1))*dfi.derivative(i));
-                for(unsigned int j=0; j<ai.size(); ++j) {
-                    assert(Ai[j]>0||ai[j]==0);
-                    if(Ai[j] > T(0)) {
-                        dL += (ai[j]/Ai[j] - T(1))*dAi[j].derivative(i);
-                    }
-                }
-                dLi.setDerivative(i, dL);
-            }
-            return dLi;
-        }
-    };
-
-    struct barlowSimpleLikelihood {
+    struct glusenkampEqualWeightsLikelihood {
         template<typename T>
-        T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
-            auto it = simulationWeights.begin();
-            auto end = simulationWeights.begin();
-            std::vector<T> wi(1);
-            const std::vector<unsigned int> ai(1, simulationWeights.size());
-            for(unsigned int j=0; j<wi.size(); ++j) {
-                end += simulationWeights.size();
-                wi[j] = std::accumulate(it, end, T(0), std::plus<T>()) / ai[j];
-                it = end;
-            }
-            if(ai.size()>0) {
-                return compute_barlow_LLH<T>()(dataCount, ai, wi);
-            }
-            else {
-                return T(0);
-            }
-        }
-    };
-
-    struct barlowLikelihood {
-        template<typename T>
-        T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
-            auto it = simulationWeights.begin();
-            auto end = simulationWeights.begin();
-            std::vector<T> wi(categories.size());
-            const std::vector<unsigned int> &ai = categories;
-            for(unsigned int j=0; j<categories.size(); ++j) {
-                end += categories[j];
-                wi[j] = std::accumulate(it, end, T(0), std::plus<T>()) / ai[j];
-                it = end;
-            }
-            if(ai.size()>0) {
-                return compute_barlow_LLH<T>()(dataCount, ai, wi);
-            }
-            else {
-                return T(0);
-            }
-        }
-    };
-
-    struct barlowExtendedLikelihood {
-        template<typename T>
-        T operator()(double dataCount, const std::vector<T>& simulationWeights, const std::vector<unsigned int>& categories) const {
-            auto it = simulationWeights.begin();
-            auto end = simulationWeights.begin();
-            const std::vector<T> & wi = simulationWeights;
-            const std::vector<unsigned int> ai(simulationWeights.size(), 1);
-            if(ai.size()>0) {
-                return compute_barlow_LLH<T>()(dataCount, ai, wi);
-            }
-            else {
-                return T(0);
-            }
-        }
-    };
-
-    // compute log(1+x) without losing precision for small values of x
-    template<typename T>
-    T LogOnePlusX(T x)
-    {
-        if (x <= -1.0)
-        {
-            std::stringstream os;
-            os << "Invalid input argument (" << x
-               << "); must be greater than -1.0";
-            throw std::invalid_argument( os.str() );
-        }
-
-        if (fabs(x) > 1e-4)
-        {
-            // x is large enough that the obvious evaluation is OK
-            return log(1.0 + x);
-        }
-
-        // Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
-        // Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
-        return x-pow(x,2.0)/2.0+pow(x,3.0)/3.0-pow(x,4.0)/4.0;
-    };
-
-    template<typename T>
-    T LogOneMinusX(T x)
-    {
-        if (x <= -1.0)
-        {
-            std::stringstream os;
-            os << "Invalid input argument (" << x
-               << "); must be greater than -1.0";
-            throw std::invalid_argument( os.str() );
-        }
-
-        if (fabs(x) > 1e-4)
-        {
-            // x is large enough that the obvious evaluation is OK
-            return log(1.0 - x);
-        }
-
-        // Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
-        // Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
-        return -x-pow(x,2.0)/2.0-pow(x,3.0)/3.0-pow(x,4.0)/4.0;
-    };
-
-    template<typename T>
-    T SFromW(T w) {
-        if(fabs(w) >= 1e-4) {
-            return 1.0 / (1.0+1.0/w);
-        }
-
-        return w - pow(w, 2.0) + pow(w, 3.0) - pow(w, 4.0) + pow(w, 5.0);
-    };
-
-    template<class T, class InputItA, class InputItB>
-    T LogSumExp(InputItA a_first, InputItA a_last, InputItB b_first, InputItB b_last) {
-        assert(std::distance(a_first, a_last) == std::distance(b_first, b_last));
-        T zero(0);
-        T minf(-std::numeric_limits<double>::infinity());
-        std::vector<T> a_copy(a_first, a_last);
-        if(a_copy.size() == 1)
-            return T(*a_first + log(*b_first));
-        auto a_it = a_copy.begin();
-        InputItB b_it = b_first;
-        for(; a_it != a_copy.end() && b_it != b_last; ++a_it, ++b_it) {
-            if(*b_it == 0)
-                *a_it = minf;
-        }
-        T a_max = *std::max_element(a_copy.begin(), a_copy.end());
-        a_it = a_copy.begin();
-        b_it = b_first;
-        for(; a_it != a_copy.end() && b_it != b_last; ++a_it, ++b_it) {
-            *a_it = *b_it * exp(*a_it - a_max);
-        }
-        return a_max + log(accumulate(a_copy.begin(), a_copy.end()));
-    }
-    /*
-    template<typename T>
-    T LogSumExp(const & std::vector<T> a, const & std::vector<T> b) {
-        assert(a.size() == b.size());
-        T zero(0);
-        T minf(-std::numeric_limits<double>::infinity());
-        std::vector<T> a_copy(a);
-        for(unsigned int i=0; i<a.size(); ++i) {
-            if(b[i] == 0)
-                a_copy[i] = minf;
-        }
-        T a_max = std::max_element(a.begin(), a.end());
-        for(unsigned int i=0; i<a.size(); ++i) {
-            a_copy[i] = b[i]*exp(a_copy[i] - a_max[i]);
-        }
-        return a_max + log(accumulate(a_copy.begin(), a_copy.end(), zero, std::plus<T>()));
-    }*/
-
-    template<class T, class InputIt>
-    T LogSumExp(InputIt first, InputIt last) {
-        T zero(0);
-        T minf(-std::numeric_limits<double>::infinity());
-        std::vector<T> a_copy(first, last);
-        if(a_copy.size() == 1)
-            return a_copy[0];
-        T a_max = *std::max_element(a_copy.begin(), a_copy.end());
-        for(auto it = a_copy.begin(); it !=a_copy.end(); ++it) {
-            *it = exp(*it - a_max);
-        }
-        T val = accumulate(a_copy.begin(), a_copy.end());
-        return a_max + log(val);
-    }
-    /*
-    template<typename T>
-    T LogSumExp(const & std::vector<T> a) {
-        T zero(0);
-        T minf(-std::numeric_limits<double>::infinity());
-        std::vector<T> a_copy(a);
-        T a_max = std::max_element(a.begin(), a.end());
-        for(unsigned int i=0; i<a.size(); ++i) {
-            a_copy[i] = exp(a_copy[i] - a_max[i]);
-        }
-        return a_max + log(accumulate(a_copy.begin(), a_copy.end(), zero, std::plus<T>()));
-    }*/
-
-    template<typename U>
-    struct PhysToolsCast {
-        template<typename T>
-        struct temp {
-            U operator()(T val) {
-                return static_cast<U>(val);
-            }
-        };
-
-        template<unsigned int Dim, typename T>
-        struct temp<phys_tools::autodiff::FD<Dim, T>> {
-            using result_type=phys_tools::autodiff::FD<Dim, T>;
-            U operator()(result_type val) {
-                return static_cast<U>(val.value());
-            }
-        };
-
-        template<typename T>
-        U operator()(T val) {
-            return temp<T>()(val);
-        }
-    };
-/*
-    template<typename U, typename T>
-    struct PhysToolsCast {
-        U operator()(T val) {
-            return static_cast<U>(val.value());
-        }
-    };
-
-    template<typename U, unsigned int Dim, typename T>
-    struct PhysToolsCast<U, phys_tools::autodiff::FD<Dim, T>> {
-        using result_type=phys_tools::autodiff::FD<Dim, T>;
-        U operator()(result_type val) {
-            return static_cast<U>(val.value());
-        }
-    };
-*/
-
-    struct thorstenLikelihood {
-        template<typename T>
-        T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
-#ifdef __APPLE__
-            //_MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW);
-#elif __linux__
-            //feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
-#endif
-
-            double log_percentage = log(0.99);
-
-            double prior_factor = 0;
-
-            unsigned int count = 1;
-            std::vector<unsigned int> kmc;
-            std::vector<T> w;
-
-            T zero(0);
-            T wN(std::numeric_limits<double>::infinity());
-            auto starting_it = raw_w.begin();
-            for(; starting_it!=raw_w.end(); ++starting_it) {
-                if(zero < *starting_it) {
-                    break;
-                }
-            }
-
-            // Get the unique weights and their counts
-            if(starting_it != raw_w.end()) {
-                T wi(*starting_it);
-                wN = wi;
-                for(auto it=starting_it+1; it!=raw_w.end(); ++it) {
-                    if(*it != wi) {
-                        w.push_back(wi);
-                        wi = *it;
-                        kmc.push_back(count);
-                        count = 0;
-                        if(wi < wN) {
-                            wN = wi;
-                        }
-                    }
-                    ++count;
-                }
-                if(count >= 1) {
-                    w.push_back(wi);
-                    kmc.push_back(count);
-                    count = 0;
-                }
-            }
-
-            double kmcs = std::accumulate(kmc.begin(), kmc.end(), (unsigned int)(0), std::plus<unsigned int>()) + prior_factor;
-
-            std::vector<T> lgammak;
-            std::vector<T> ldelta = {T(0)};
-
-            auto eta_gen = boost::adaptors::transform(w, [&](T ww){return LogOneMinusX(wN / ww);});
-
-            std::vector<T> eta(eta_gen.begin()+1, eta_gen.end());
-
-            double alpha_factor = prior_factor / double(w.size());
-
-            auto alpha_gen = boost::adaptors::transform(kmc, [&](unsigned int kmci)->double{return alpha_factor + kmci;});
-
-            std::vector<double> alpha(alpha_gen.begin()+1, alpha_gen.end());
-
-            T lwN = log(wN);
-            auto lC_gen = boost::adaptors::transform(boost::irange((unsigned int)0, (unsigned int)w.size()), [&](unsigned int i)->T{return (lwN - log(w[i]))*alpha_gen[i];});
-            //auto lC_gen = boost::adaptors::transform(w, alpha, [&](T wi, double alphai)->T{return (lwN - log(wi))*alphai;});
-
-            T lC = accumulate(lC_gen.begin(), lC_gen.end());
-
-            std::function<T(unsigned int)> get_log_gamma = [&] (unsigned int i)->T{
-                std::function<double(double)> b_func([&](double kmci)->double{return kmci/double(i);});
-                std::function<T(T)> a_func([&](T e)->T{return e*i;});
-                auto b_gen = boost::adaptors::transform(alpha, b_func);
-                auto a_gen = boost::adaptors::transform(eta, a_func);
-                return LogSumExp<T>(a_gen.begin(), a_gen.end(), b_gen.begin(), b_gen.end());
-            };
-
-            std::function<void()> gen_next_log_delta = [&] ()->void{
-                lgammak.push_back(get_log_gamma(lgammak.size()+1));
-                unsigned int i = lgammak.size();
-                std::function<T(unsigned int)> get_lg_plus_li = [&](unsigned int j)->T{return lgammak[j]+log(j+1);};
-                auto lg_plus_li = boost::adaptors::transform(boost::irange((unsigned int)(0), (unsigned int)(i)), get_lg_plus_li);
-                unsigned int ldelta_size = ldelta.size();
-                std::function<T(unsigned int)> get_ld_plus_lg_plus_li = [&](unsigned int i)->T{return ldelta[ldelta_size-i-1]+lg_plus_li[i];};
-                auto ld_plus_lg_plus_li = boost::adaptors::transform(boost::irange((unsigned int)0, ldelta_size), get_ld_plus_lg_plus_li);
-                T next_ldelta = LogSumExp<T>(ld_plus_lg_plus_li.begin(), ld_plus_lg_plus_li.end()) - log(i);
-                ldelta.push_back(next_ldelta);
-            };
-
-            std::function<double()> get_log_percentage = [&] ()->double{
-                auto ldelta_gen = boost::adaptors::transform(ldelta, [&](T delta)->double{return PhysToolsCast<double>()(delta);});
-                double ldelta_sum = LogSumExp<double>(ldelta_gen.begin(), ldelta_gen.end());
-                double lC_double = PhysToolsCast<double>()(lC);
-                double index = ldelta_sum + lC_double;
-                std::cout << index << std::endl;
-                return index;
-            };
-
-            while(get_log_percentage() < log_percentage) {
-                gen_next_log_delta();
-            }
-
-            std::vector<T> terms(5);
-
-            auto log_sum_terms_gen = boost::adaptors::transform(boost::irange((unsigned int)0, (unsigned int)ldelta.size()), [&](unsigned int i)->T{
-                    terms[0] = ldelta[i];
-                    terms[1] = lgamma(k+i+kmcs);
-                    terms[2] = -i*lwN;
-                    terms[3] = -lgamma(i + kmcs);
-                    terms[4] = -i*LogOnePlusX(1.0/wN);
-                    return accumulate(terms.begin(), terms.end());});
-
-            T delta_sum = LogSumExp<T>(log_sum_terms_gen.begin(), log_sum_terms_gen.end());
-
-            terms[0] = lC;
-            terms[1] = -kmcs*lwN;
-            terms[2] = -lgamma(1+k);
-            terms[3] = -(k+kmcs)*LogOnePlusX(1.0/wN);
-            terms[4] = delta_sum;
-
-            return accumulate(terms.begin(), terms.end());
-
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-            fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
-        }
-    };
-/*
-    struct thorstenLikelihood {
-        template<typename T>
-        T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
-#elif __linux__
-            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
-
-            unsigned int count = 1;
-            std::vector<unsigned int> kmc;
-            std::vector<T> w;
-
-            std::cout << "RAW WEIGHTS BEGIN" << std::endl;
-
-            for(unsigned int i=0; i<raw_w.size(); ++i) {
-                std::cout << raw_w[i] << std::endl;
-
-            }
-            std::cout << "RAW WEIGHTS END" << std::endl;
-
-            T zero(0);
-            auto starting_it = raw_w.begin();
-            for(; starting_it!=raw_w.end(); ++starting_it) {
-                if(zero < *starting_it && SFromW(*starting_it) != zero && LogOnePlusX(*starting_it) != zero) {
-                    break;
-                }
-            }
-            if(starting_it != raw_w.end()) {
-                //T wi = raw_w[0];
-                T wi(*starting_it);
-                for(auto it=starting_it+1; it!=raw_w.end(); ++it) {
-                    if(*it != wi) {
-                        w.push_back(wi);
-                        wi = *it;
-                        kmc.push_back(count);
-                        if(count > 1) {
-                            std::cout << "count: " << count << std::endl;
-                        }
-                        count = 0;
-                    }
-                    ++count;
-                }
-                if(count > 0) {
-                    w.push_back(wi);
-                    if(count > 1) {
-                        std::cout << "count: " << count << std::endl;
-                    }
-                    kmc.push_back(count);
-                }
-                assert(std::distance(w.begin(), std::unique(w.begin(), w.end(), std::equal_to<T>())) == w.size());
-
-                const unsigned int kmc_tot = std::accumulate(kmc.begin(), kmc.end(), (unsigned int)(0), std::plus<unsigned int>());
-                const unsigned int M = w.size(); // Number of distinct weights
-
-
-                //auto s_gen = boost::adaptors::transform(boost::irange((unsigned int)(0),(unsigned int)(M)),[&](unsigned int i){return SFromW(w[i]);});
-                //std::vector<T> s(s_gen.begin(), s_gen.end());
-                //T L(static_cast<T>(residuals::thorsten_fast<T>()(w,s,k)));
-                //std::cout << "L = " << L << std::endl;
-                T L(0);
-                //std::cout << "L = " << L << std::endl;
-                const std::vector<T> z(1, T(0));
-                const std::vector<unsigned int> n(1, (unsigned int)(k+kmc_tot-1));
-                std::vector<T> s(w.size());
-                for(unsigned int i=0; i<M; ++i) {
-                    s[i] = SFromW(w[i]);
-                    T f = LogOnePlusX(w[i]);
-                    L -= f;
-                }
-                L *= kmc_tot;
-                //std::cout << "L *= " << kmc_tot << std::endl;
-                //std::cout << "L = " << L << std::endl;
-                const std::vector<unsigned int>& m = kmc;
-                T f = static_cast<T>(residuals::contour_integral_bignum<10000, T>()(z, n, s, m));
-                //T f = residuals::contour_integral<T>()(z, n, s, m);
-                //T f = 1;
-                //std::cout << "f = " << f << std::endl;
-                assert(f > 0);
-                T lf = log(f);
-                L += lf;
-                //std::cout << "L += " << lf << std::endl;
-                //std::cout << "L = " << L << std::endl;
-
-#ifdef __APPLE__
-                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
-                return L;
-            }
-            else {
-#ifdef __APPLE__
-                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
-                return T(0);
-            }
-        }
-    };
-*/
-
-    struct gammaPriorPoissonLikelihood {
-        template<typename T>
-        T operator()(double k, T const & alpha, T const & beta) {
-            std::vector<T> items(5);
-            items[0] = alpha*log(beta);
-            items[1] = lgamma(k+alpha);
-            items[2] = -lgamma(k+1);
-            items[3] = -(k+alpha)*LogOnePlusX(beta);
-            items[4] = -lgamma(alpha);
-            return accumulate(items.begin(), items.end());
-        }
-    };
-
-    struct thorstenEqualWeightsLikelihood {
-        template<typename T>
-        T operator()(double k, int n_events, T const & w_sum, T const & w2_sum) const {
-            double kmc = n_events;
+		T operator()(double k, likelihood::detail::ExpectationProperties<T> const & expect) const {
+            std::vector<T> const & weights = expect.weights;
+            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
+			T w_sum = std::accumulate(weights.begin(), weights.end(), T(0), std::plus<T>());
+			T w2_sum = std::accumulate(weightUncertainties.begin(), weightUncertainties.end(), T(0), std::plus<T>());
+            double kmc = weights.size();
             if(kmc <= 0) {
                 return T(0);
             }
@@ -983,15 +549,19 @@ namespace likelihood{
 
             T alpha = kmc;
             T beta = kmc / s;
-            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
+            T L = likelihood::detail::gammaPriorPoissonLikelihood()(k, alpha, beta);
 
             return L;
         }
     };
 
-    struct bayesianSAYLikelihood {
+    struct SAYMMSELikelihood {
         template<typename T>
-        T operator()(double k, T const & w_sum, T const & w2_sum) const {
+		T operator()(double k, likelihood::detail::ExpectationProperties<T> const & expect) const {
+            std::vector<T> const & weights = expect.weights;
+            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
+			T w_sum = std::accumulate(weights.begin(), weights.end(), T(0), std::plus<T>());
+			T w2_sum = std::accumulate(weightUncertainties.begin(), weightUncertainties.end(), T(0), std::plus<T>());
             if(w_sum <= 0 || w2_sum < 0) {
                 return(k==0?0:-std::numeric_limits<T>::max());
             }
@@ -1013,15 +583,19 @@ namespace likelihood{
 
             T alpha = pow(w_sum, T(2))/w2_sum;
             T beta = w_sum/w2_sum;
-            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
+            T L = likelihood::detail::gammaPriorPoissonLikelihood()(k, alpha, beta);
 
             return L;
         }
     };
 
-    struct frequentistSAYLikelihood {
+    struct SAYMAPLikelihood {
         template<typename T>
-        T operator()(double k, T const & w_sum, T const & w2_sum) const {
+		T operator()(double k, likelihood::detail::ExpectationProperties<T> const & expect) const {
+            std::vector<T> const & weights = expect.weights;
+            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
+			T w_sum = std::accumulate(weights.begin(), weights.end(), T(0), std::plus<T>());
+			T w2_sum = std::accumulate(weightUncertainties.begin(), weightUncertainties.end(), T(0), std::plus<T>());
             if(w_sum <= 0 || w2_sum < 0) {
                 return(k==0?0:-std::numeric_limits<T>::max());
             }
@@ -1047,26 +621,54 @@ namespace likelihood{
 
             T beta = (mu + sqrt(mu2+sigma2*4.0))/(sigma2*2);
             T alpha = (mu*sqrt(mu2+sigma2*4.0)/sigma2 + mu2/sigma2 + 2.0) / 2.0;
-            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
+            T L = likelihood::detail::gammaPriorPoissonLikelihood()(k, alpha, beta);
 
             return L;
         }
     };
 
     struct SAYLikelihood {
-        const bool is_frequentist;
-        SAYLikelihood():is_frequentist(false) {}
-        SAYLikelihood(bool is_frequentist):is_frequentist(is_frequentist) {}
-        bayesianSAYLikelihood bayesian;
-        frequentistSAYLikelihood frequentist;
+        const bool is_map;
+        SAYLikelihood():is_map(false) {}
+        SAYLikelihood(bool is_map):is_map(is_map) {}
+        SAYMAPLikelihood MAP;
+        SAYMMSELikelihood MMSE;
         template<typename T>
-        T operator()(double k, T const & w_sum, T const & w2_sum) const {
-            if(is_frequentist)
-                return frequentist(k, w_sum, w2_sum);
+		T operator()(double k, likelihood::detail::ExpectationProperties<T> const & expect) const {
+            if(is_map)
+                return MAP(k, expect);
             else
-                return bayesian(k, w_sum, w2_sum);
+                return MMSE(k, expect);
         }
     };
+
+	///Schneider Arguelles Yuan (empirical Bayes) likelihood
+	///Developed by Austin Schneider, Carlos Arguelles, and Tianlu Yuan
+	///*citation needed
+	struct SAYLikelihood {
+		template<typename T>
+		T operator()(double k, likelihood::detail::ExpectationProperties<T> const & expect) const {
+		    std::vector<T> const & weights = expect.weights;
+            std::vector<T> const & weightUncertainties = expect.weightUncertainties;
+			T w_sum = std::accumulate(weights.begin(), weights.end(), T(0), std::plus<T>());
+			T w2_sum = std::accumulate(weightUncertainties.begin(), weightUncertainties.end(), T(0), std::plus<T>());
+
+			if(w_sum <= 0 || w2_sum < 0) {
+				//return(k==0?0:-std::numeric_limits<T>::max());
+				return T(0);
+			}
+
+			if(w2_sum == 0) {
+				return poissonLikelihood()(k, expect);
+			}
+
+			T alpha = (w_sum*w_sum)/w2_sum;
+			T beta = w_sum/w2_sum;
+			T L = likelihood::detail::gammaPriorPoissonLikelihood()(k, alpha, beta);
+
+			return L;
+		}
+	};
 
 	//A bin type for keeping events in their histogram bins
 
@@ -1082,12 +684,12 @@ namespace likelihood{
 			assert(d==0);
 		}
 
-		//allow assigning 'zero' values
-		entryStoringBin& operator=(double d){
-			assert(d==0);
+        //allow assigning 'zero' values
+        entryStoringBin& operator=(double d){
+            assert(d==0);
             data.clear();
             return(*this);
-		}
+        }
 
 		entryStoringBin& operator+=(const DataType& e){
 			data.push_back(e);
@@ -1146,6 +748,7 @@ namespace histograms{
 				amount(const OtherType& other):value(other.value){}
 			};
 			static void defaultData(likelihood::entryStoringBin<T>* data, unsigned int count){/* Nothing to do */}
+			static likelihood::entryStoringBin<T> neutral(){ return(likelihood::entryStoringBin<T>()); }
 		};
 	} //namespace detail
 } //namespace histograms
@@ -1281,6 +884,7 @@ namespace likelihood{
         typedef decltype(makeArbitraryPriorSet<Indices>(std::declval<PriorTypes>()...)) type;
     };
 
+
 	template<typename... PriorTypes>
 	class FixedSizePriorSet{
 	private:
@@ -1328,14 +932,9 @@ namespace likelihood{
 		result_type operator()(const Event& e) const{ return(1.0); }
 	};
 
-    struct simpleDataWeightConstructor{
-		using result_type=simpleDataWeighter;
-		result_type operator()(const std::vector<double>&) const{ return(simpleDataWeighter()); }
-	};
-
 	// fundamental wrapper object for setting up likelihood fits for models by comparing observed data
 	// events to simulated events
-	template<typename Event, typename HistogramsType, typename DataWeighterConstructor, typename SimulationWeighterConstructor, typename CPrior, typename LFunc, int MaxDerivativeDimension=-1>
+	template<typename Event, typename HistogramsType, typename DataWeighterConstructor, typename WCollection, typename CPrior, typename LFunc, int MaxDerivativeDimension=-1>
 	struct LikelihoodProblem{
 		using RawEvent = typename remove_reference_wrapper<Event>::type;
 		static constexpr int DerivativeDimension=MaxDerivativeDimension;
@@ -1356,11 +955,11 @@ namespace likelihood{
 
 		//object used to compute the weights of the observed data events
 		//this may be a non-trivial calculation if the 'observed data' is a MC sample
-		DataWeighterConstructor dataWeightC;
+		DataWeighterConstructor dataWeighterC;
 
 		//object used to construct the weighter for expected events from a set of model parameters
 		//must be callable with an std::vector<double> containing the model parameters
-		SimulationWeighterConstructor simWeightC;
+		WCollection simWeightC;
 
 		//the function used to compute the likelihood of observing a particular set of events in a bin
 		//given a population of simulated, expected events in that bin, over some livetime
@@ -1377,8 +976,8 @@ namespace likelihood{
 
 		LikelihoodProblem(HistogramsType observation, const std::vector<HistogramsType>& simulations,
 						  CPrior continuousPrior, std::vector<double> discretePrior,
-						  const DataWeighterConstructor& dataWeightC,
-						  const SimulationWeighterConstructor& simWeightC,
+						  const DataWeighterConstructor& dataWeighterC,
+						  const WCollection& simWeightC,
 						  const LFunc& likelihoodFunction,
 						  std::vector<double> parameterSeeds,
 						  unsigned int evaluationThreadCount=1):
@@ -1386,7 +985,7 @@ namespace likelihood{
 		simulations(simulations),
 		continuousPrior(continuousPrior),
 		discretePrior(discretePrior),
-		dataWeightC(dataWeightC),
+		dataWeighterC(dataWeighterC),
 		simWeightC(simWeightC),
 		likelihoodFunction(likelihoodFunction),
 		parameterSeeds(parameterSeeds),
@@ -1395,9 +994,9 @@ namespace likelihood{
 		{}
 
 		template<typename AltLFunc>
-		LikelihoodProblem<Event, HistogramsType, DataWeighterConstructor, SimulationWeighterConstructor, CPrior, AltLFunc, MaxDerivativeDimension>
+		LikelihoodProblem<Event, HistogramsType, DataWeighterConstructor, WCollection, CPrior, AltLFunc, MaxDerivativeDimension>
 		makeAlternateLikelihood(const AltLFunc& altlikelihoodFunction) const{
-			using result_type=LikelihoodProblem<Event, HistogramsType, DataWeighterConstructor, SimulationWeighterConstructor, CPrior, AltLFunc, MaxDerivativeDimension>;
+			using result_type=LikelihoodProblem<Event, HistogramsType, DataWeighterConstructor, WCollection, CPrior, AltLFunc, MaxDerivativeDimension>;
 			return(result_type(observation,simulations,continuousPrior,discretePrior,dataWeightC,simWeightC,altlikelihoodFunction,parameterSeeds,evaluationThreadCount));
 		}
 
@@ -1415,94 +1014,32 @@ namespace likelihood{
 			evaluationThreadCount=count;
 		}
 
-		SimulationWeighterConstructor& getSimulationWeighterConstructor(){ return(simWeightC); }
-		const SimulationWeighterConstructor& getSimulationWeighterConstructor() const{ return(simWeightC); }
+		WCollection& getSimulationWeighterCollection(){ return(simWeightC); }
+		const WCollection& getSimulationWeighterCollection() const{ return(simWeightC); }
 
 		//evaluate the (non-prior) contribution to the likelihood from one observation,expectation histogram pair
-		template<typename DataType, typename SimulationWeighter, typename TDataWeighter, typename HistogramType>
-		void evaluateLikelihoodCore(const HistogramType& observation, SimulationWeighter& weighter, TDataWeighter& dweighter, const HistogramType& simulation,
-								    std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions) const{
+		template<typename DataType, typename DataWeighter typename HistogramType>
+		void evaluateLikelihoodCore(const HistogramType& observation, std::function<likelihood::detail::ExpectationProperties<DataType>(const std::vector<Event>&)>& weighter, DataWeighter& dweighter,
+									const HistogramType& simulation,
+									std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions) const{
 			const auto& likelihoodFunction=this->likelihoodFunction;
-			auto dataWeightAccumulator=[&dweighter](double t, const Event& e){ return(t+dweighter(e)); };
+			auto dataWeightAccumulator=[this](double t, const Event& e){ return(t+dweighter(e)); };
 
 			auto likelihoodContribution=[dataWeightAccumulator,&weighter,&simulation,&likelihoodFunction,&printMtx](typename HistogramType::const_iterator it)->DataType{
 				entryStoringBin<Event> obs=*it;
 
 				double observationAmount=std::accumulate(obs.begin(),obs.end(),0.0,dataWeightAccumulator);
 
-				std::vector<DataType> expectationWeights;
-                std::vector<DataType> expectationSqWeights;
-                DataType w;
-                DataType w2;
-                int n_events=0;
+				likelihood::detail::ExpectationProperties<DataType> expect;
 				typename HistogramType::const_iterator expIt=simulation.findBinIterator(it);
-				if(expIt!=simulation.end()){
-					/*{
-						std::lock_guard<std::mutex> lck(printMtx);
-						std::cout << "   exp coords:";
-						for(unsigned int i=0; i<2; i++)
-							std::cout << ' ' << expIt.getBinEdge(i);
-						std::cout << std::endl;
-					}*/
-					const std::vector<Event>& exp=((entryStoringBin<Event>)*expIt).entries();
-					expectationWeights.reserve(((entryStoringBin<Event>)*expIt).size());
-					expectationSqWeights.reserve(((entryStoringBin<Event>)*expIt).size());
-					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
-                        w = weighter(e);
-                        assert(w >= 0);
-                        w2 = pow(w, DataType(2.0));
-                        assert(w2 >= 0);
-                        assert(e.num_events > 0);
-                        n_events += e.num_events;
-						expectationWeights.push_back(w);
-						expectationSqWeights.push_back(w2/e.num_events);
-						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
-							std::lock_guard<std::mutex> lck(printMtx);
-							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
-							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
-						}
-						if(std::isnan(expectationSqWeights.back()) || expectationSqWeights.back()<0.0){
-							std::lock_guard<std::mutex> lck(printMtx);
-							std::cout << "Bad weightSq: " << expectationSqWeights.back() << "\nEvent:\n" << e << std::endl;
-							std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
-							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
-						}
-						if(std::isnan(e.num_events) || e.num_events<0.0){
-							std::lock_guard<std::mutex> lck(printMtx);
-							std::cout << "Bad num_events: " << e.num_events << "\nEvent:\n" << e << std::endl;
-							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
-						}
-						//std::cout << "    " << expectationWeights.back() << std::endl;
-					}
-				}
+				if(expIt!=simulation.end())
+					expect = weighter(((entryStoringBin<Event>)*expIt).entries());
 
-                //std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
-
-                auto w_sum = accumulate(expectationWeights.begin(), expectationWeights.end());
-                auto w2_sum = accumulate(expectationSqWeights.begin(), expectationSqWeights.end());
-
-                if(observationAmount > 0 && w_sum <= 0) {
-                    std::cout << "BAD BIN" << std::endl;
-                    std::cout << "Printing weights" << std::endl;
-                    for(auto w : expectationWeights) {
-                        std::cout << w << std::endl;
-                    }
-                    std::cout << "Printing events" << std::endl;
-					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
-                        std::cout << e << std::endl;
-                    }
-                    std::cout << "Printing data" << std::endl;
-					for(auto e : obs) {
-                        std::cout << e << std::endl;
-                    }
-                }
-
-                auto contribution=likelihoodFunction(observationAmount,w_sum,w2_sum);
-
+				auto contribution=likelihoodFunction(observationAmount,expect);
 				/*{
 					std::lock_guard<std::mutex> lck(printMtx);
 					DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
-					std::cout << "   obs coords:";
+					std::cout << "	 obs coords:";
 					for(unsigned int i=0; i<3; i++)
 						std::cout << ' ' << it.getBinEdge(i);
 					std::cout << ' ' << contribution
@@ -1512,7 +1049,6 @@ namespace likelihood{
 						std::cout << ' ' << w;
 					std::cout << ']' << std::endl;
 				}*/
-                //std::cout << "contribution: " << contribution << std::endl;
 				return(contribution);
 			};
 			auto likelihoodContributionNoObs=[&weighter,&observation,&likelihoodFunction,&printMtx](typename HistogramType::const_iterator it)->DataType{
@@ -1520,33 +1056,13 @@ namespace likelihood{
 
 				//only proceed if this bin does not exist in the observation
 				if(obsIt==observation.end()){
-					std::vector<DataType> expectationWeights;
-					std::vector<DataType> expectationSqWeights;
-                    DataType w;
-                    DataType w2;
-                    int n_events=0;
-					const std::vector<Event>& exp=((entryStoringBin<Event>)*it).entries();
-					expectationWeights.reserve(((entryStoringBin<Event>)*it).size());
-					expectationSqWeights.reserve(((entryStoringBin<Event>)*it).size());
-					for(const RawEvent& e : ((entryStoringBin<Event>)*it)) {
-                        w = weighter(e);
-                        assert(w >= 0);
-                        w2 = pow(w, DataType(2.0));
-                        assert(w2 >= 0);
-                        assert(e.num_events > 0);
-                        n_events += e.num_events;
-						expectationWeights.push_back(w);
-					    expectationSqWeights.push_back(w2/e.num_events);
-                    }
+					likelihood::detail::ExpectationProperties<DataType> expect = weighter(((entryStoringBin<Event>)*it).entries());
 
-                    //std::sort(expectationWeights.begin(), expectationWeights.end(), std::less<DataType>());
-
-					//auto contribution=likelihoodFunction(0,expectationWeights,n_events);
-				    auto contribution=likelihoodFunction(0,accumulate(expectationWeights.begin(), expectationWeights.end()),accumulate(expectationSqWeights.begin(), expectationSqWeights.end()));
+					auto contribution=likelihoodFunction(0,expect);
 					/*{
 						std::lock_guard<std::mutex> lck(printMtx);
 						DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
-						std::cout << "   exp coords:";
+						std::cout << "	 exp coords:";
 						for(unsigned int i=0; i<DataDimension; i++)
 							std::cout << ' ' << it.getBinEdge(i);
 						std::cout << ' ' << contribution
@@ -1556,12 +1072,11 @@ namespace likelihood{
 							std::cout << ' ' << w;
 						std::cout << ']' << std::endl;
 					}*/
-                    //std::cout << "noobs contribution: " << contribution << std::endl;
 					return(contribution);
 				}
 				/*{
 					std::lock_guard<std::mutex> lck(printMtx);
-					std::cout << "   exp coords:";
+					std::cout << "	 exp coords:";
 					for(unsigned int i=0; i<DataDimension; i++)
 						std::cout << ' ' << it.getBinEdge(i);
 					std::cout << ' ' << DataType(0)
@@ -1582,8 +1097,8 @@ namespace likelihood{
 				contributions.push_back(pool.enqueue(likelihoodContributionNoObs,it));
 		}
 
-//        //evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
-//        //[recursive/iterative case]
+//		  //evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
+//		  //[recursive/iterative case]
 //		template<unsigned int Counter, typename DataType, typename SimulationWeighter>
 //		void evaluateLikelihoodIterate(const HistogramsType& observation, SimulationWeighter weighter, const HistogramsType& simulation,
 //								  std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions){
@@ -1595,8 +1110,8 @@ namespace likelihood{
 //			evaluateLikelihoodIterate<Counter-1>(observation, weighter, simulation,
 //												 printMtx, pool, contributions);
 //		}
-//        //evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
-//        //[base case]
+//		  //evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
+//		  //[base case]
 //		template<typename DataType, typename SimulationWeighter>
 //		void evaluateLikelihoodIterate<0,DataType,SimulationWeighter>(const HistogramsType& observation, SimulationWeighter weighter, const HistogramsType& simulation,
 //																 std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions){
@@ -1604,25 +1119,26 @@ namespace likelihood{
 //		}
 
 		//evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
-	    //[recursive/iterative case]
-		template<unsigned int Counter, typename Likelihood, typename DataType, typename SimulationWeighter, typename TDataWeighter>
+		//[recursive/iterative case]
+		template<unsigned int Counter, typename Likelihood, typename DataType, typename SimulationWeighter, typename DataWeighter>
 		struct evaluateLikelihoodIterator{
-			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, TDataWeighter& dweighter, const HistogramsType& simulation,
+			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, DataWeighter& dweighter,
+							const HistogramsType& simulation,
 							std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions){
 				//evaluate for this pair
 				constexpr unsigned int idx=std::tuple_size<HistogramsType>::value - Counter;
 				like.evaluateLikelihoodCore(std::get<idx>(observation), weighter, dweighter, std::get<idx>(simulation),
 									   printMtx, pool, contributions);
 				//evaluate for the next pair
-				evaluateLikelihoodIterator<Counter-1, Likelihood, DataType, SimulationWeighter, TDataWeighter>{}
+				evaluateLikelihoodIterator<Counter-1, Likelihood, DataType, SimulationWeighter>{}
 					(like, observation, weighter, dweighter, simulation, printMtx, pool, contributions);
 			}
 		};
 		//evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
-	    //[base case]
-		template<typename Likelihood, typename DataType, typename SimulationWeighter, typename TDataWeighter>
-		struct evaluateLikelihoodIterator<0,Likelihood,DataType,SimulationWeighter,TDataWeighter>{
-			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, TDataWeighter& dweighter, const HistogramsType& simulation,
+		//[base case]
+		template<typename Likelihood, typename DataType, typename SimulationWeighter, typename DataWeighter>
+		struct evaluateLikelihoodIterator<0,Likelihood,DataType,SimulationWeighter,DataWeighter>{
+			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, DataWeighter& dweighter, const HistogramsType& simulation,
 							std::mutex& printMtx, ThreadPool& pool, std::vector<std::future<DataType>>& contributions){
 				//do nothing
 			}
@@ -1630,17 +1146,17 @@ namespace likelihood{
 
 		//evaluate the (non-prior) contribution to the likelihood from one pair of observation,expectation histogram tuples
 		//[top level]
-		template<typename DataType, typename SimulationWeighter, typename TDataWeighter>
-		DataType evaluateLikelihood(SimulationWeighter weighter, TDataWeighter dweighter, const HistogramsType& simulation) const{
+		template<typename DataType, typename SimulationWeighter, typename DataWeighter>
+		DataType evaluateLikelihood(SimulationWeighter weighter, DataWeighter dweighter, const HistogramsType& simulation) const{
 			std::mutex printMtx;
-	        ThreadPool pool(evaluationThreadCount);
+			ThreadPool pool(evaluationThreadCount);
 			std::vector<std::future<DataType>> contributions;
 			const HistogramsType& observation=this->observation;
 
 			//Iterate over the observeation and expectation tuples,
 			//firing off tasks for computing the per-bin likelihoods.
 			//Futures for these results will accumulate in contributions.
-			evaluateLikelihoodIterator<std::tuple_size<HistogramsType>::value,decltype(*this),DataType,SimulationWeighter,TDataWeighter>{}
+			evaluateLikelihoodIterator<std::tuple_size<HistogramsType>::value,decltype(*this),DataType,SimulationWeighter,DataWeighter>{}
 			(*this, observation, weighter, dweighter, simulation, printMtx, pool, contributions);
 
 			//Iterate over the futures collecting the results and combining them when they are availiable.
@@ -1649,7 +1165,6 @@ namespace likelihood{
 				auto contribution=future.get();
 				llh+=contribution;
 			}
-            //std::cout << "LLH: " << llh << std::endl;
 			return(llh);
 		}
 
@@ -1680,10 +1195,10 @@ namespace likelihood{
 //						expectationWeights.push_back(weighter(e));
 //						if(std::isnan(expectationWeights.back()) || expectationWeights.back()<0.0){
 //							std::lock_guard<std::mutex> lck(printMtx);
-//                            std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
+//							  std::cout << "Bad weight: " << expectationWeights.back() << "\nEvent:\n" << e << std::endl;
 //							//std::cout << e.energy << ' ' << e.year << ' ' << expectationWeights.back() << std::endl;
 //						}
-//						//std::cout << "    " << expectationWeights.back() << std::endl;
+//						//std::cout << "	" << expectationWeights.back() << std::endl;
 //					}
 //				}
 //
@@ -1691,7 +1206,7 @@ namespace likelihood{
 //				/*{
 //					std::lock_guard<std::mutex> lck(printMtx);
 //					DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
-//					std::cout << "   obs coords:";
+//					std::cout << "	 obs coords:";
 //					for(unsigned int i=0; i<3; i++)
 //						std::cout << ' ' << it.getBinEdge(i);
 //					std::cout << ' ' << contribution
@@ -1718,7 +1233,7 @@ namespace likelihood{
 //					/*{
 //						std::lock_guard<std::mutex> lck(printMtx);
 //						DataType expectationAmount=std::accumulate(expectationWeights.begin(),expectationWeights.end(),DataType(0));
-//						std::cout << "   exp coords:";
+//						std::cout << "	 exp coords:";
 //						for(unsigned int i=0; i<DataDimension; i++)
 //							std::cout << ' ' << it.getBinEdge(i);
 //						std::cout << ' ' << contribution
@@ -1732,7 +1247,7 @@ namespace likelihood{
 //				}
 //				/*{
 //					std::lock_guard<std::mutex> lck(printMtx);
-//					std::cout << "   exp coords:";
+//					std::cout << "	 exp coords:";
 //					for(unsigned int i=0; i<DataDimension; i++)
 //						std::cout << ' ' << it.getBinEdge(i);
 //					std::cout << ' ' << DataType(0)
@@ -1782,8 +1297,9 @@ namespace likelihood{
 //			return(llh);
 //		}
 
-		template<typename DataType, typename SimulationWeighter, typename TDataWeighter, typename DataHistogramType, typename ResultHistogramType>
-		void evaluateLikelihoodContributionsCore(const DataHistogramType& observation, SimulationWeighter& weighter, TDataWeighter& dweighter, const DataHistogramType& simulation, ResultHistogramType& result) const{
+		template<typename DataType, typename DataWeighter, typename DataHistogramType, typename ResultHistogramType>
+		void evaluateLikelihoodContributionsCore(const DataHistogramType& observation, std::function<likelihood::detail::ExpectationProperties<DataType>(const std::vector<Event>&)>& weighter, DataWeighter dweighter,
+				const DataHistogramType& simulation, ResultHistogramType& result) const{
 			const auto& likelihoodFunction=this->likelihoodFunction;
 			auto dataWeightAccumulator=[&dweighter](double t, const Event& e){ return(t+dweighter(e)); };
 
@@ -1796,15 +1312,12 @@ namespace likelihood{
 
 				double observationAmount=std::accumulate(obs.begin(),obs.end(),0.0,dataWeightAccumulator);
 
-				std::vector<DataType> expectationWeights;
+				likelihood::detail::ExpectationProperties<DataType> expect;
+
 				typename DataHistogramType::const_iterator expIt=simulation.findBinIterator(it);
-				if(expIt!=simulation.end()){
-					const std::vector<Event>& exp=((entryStoringBin<Event>)*expIt).entries();
-					expectationWeights.reserve(((entryStoringBin<Event>)*expIt).size());
-					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt))
-						expectationWeights.push_back(weighter(e));
-				}
-				DataType contribution=likelihoodFunction(observationAmount,expectationWeights);
+				if(expIt!=simulation.end())
+					expect = weighter(((entryStoringBin<Event>)*expIt).entries());
+				DataType contribution=likelihoodFunction(observationAmount,expect);
 
 				std::vector<double> coordinates(histDimensions,0);
 				for(unsigned int i=0; i<histDimensions; i++)
@@ -1817,12 +1330,8 @@ namespace likelihood{
 				DataType contribution=0;
 				//only proceed if this bin does not exist in the observation
 				if(obsIt==observation.end()){
-					std::vector<DataType> expectationWeights;
-					const std::vector<Event>& exp=((entryStoringBin<Event>)*it).entries();
-					expectationWeights.reserve(((entryStoringBin<Event>)*it).size());
-					for(const RawEvent& e : ((entryStoringBin<Event>)*it))
-						expectationWeights.push_back(weighter(e));
-					contribution=likelihoodFunction(0,expectationWeights);
+					likelihood::detail::ExpectationProperties<DataType> expect = weighter(((entryStoringBin<Event>)*it).entries());
+					contribution=likelihoodFunction(0,expect);
 				}
 
 				std::vector<double> coordinates(histDimensions,0);
@@ -1846,7 +1355,8 @@ namespace likelihood{
 		//[recursive/iterative case]
 		template<unsigned int Counter, typename Likelihood, typename DataType, typename SimulationWeighter, typename ResultHistogramType>
 		struct evaluateLikelihoodContributionsIterator{
-			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter, const HistogramsType& simulation,
+			void operator()(const Likelihood& like, const HistogramsType& observation, SimulationWeighter& weighter,
+							const HistogramsType& simulation,
 							ResultHistogramType& result){
 				//evaluate for this pair
 				constexpr unsigned int idx=std::tuple_size<HistogramsType>::value - Counter;
@@ -1938,10 +1448,6 @@ namespace likelihood{
 
 		template<typename DataType>
 		DataType evaluateLikelihood(const std::vector<DataType>& rawParams, bool includePriors=true) const{
-            //for(auto i: rawParams) {
-            //    std::cout << i << ", ";
-            //}
-            //std::cout << std::endl;
 			std::vector<DataType> params;
 			bool scanDNuisance=false;
 			//TODO: fix this once there are discrete variations
@@ -1967,13 +1473,11 @@ namespace likelihood{
 			DataType cPrior=continuousPrior.template operator()<DataType>(continuousParams);
 
 			//bail out early if we're in a disallowed part of the parameter space
-			//if(cPrior<=0 || std::isnan(cPrior)){
 			if(std::isnan(cPrior)){
 				//std::cout << "Out-of-bounds prior prob" << std::endl;
 				return(-std::numeric_limits<DataType>::max());
 			}
 			//std::cout << "(prior=" << cPrior << ") ";
-			//cPrior=log(cPrior); //convert to log(P) for rest of calculation
 
 			//compute the actual llh for every necessary discrete nuisance index
 			//(of which there will only be one unless we've been called by a minimizer)
@@ -1982,7 +1486,7 @@ namespace likelihood{
 			for(size_t dn=minDN; dn<maxDN; dn++){
 				DataType llh=(includePriors?cPrior+discretePrior[dn]:0);
 				params.back()=dn;
-				llh+=evaluateLikelihood<DataType>(simWeightC(continuousParams),dataWeightC(continuousParams),simulations[dn]);
+				llh+=evaluateLikelihood<DataType>(simWeightC.template operator()<Event, DataType>(continuousParams),dataWeightC(continuousParams),simulations[dn]);
 
 				if(llh>bestLLH){
 					bestLLH=llh;
@@ -1993,7 +1497,7 @@ namespace likelihood{
 			return(bestLLH);
 		}
 
-//        ///\return a pair consitsting of the LLH per bin in the form of a histogram (with the same dimensions and axes as the data) and the log probability due to the priors
+//		  ///\return a pair consitsting of the LLH per bin in the form of a histogram (with the same dimensions and axes as the data) and the log probability due to the priors
 //		template<typename DataType>
 //		std::pair<phys_tools::histograms::histogram<DataDimension,DataType>,DataType> evaluateLikelihoodHistogram(const std::vector<DataType>& rawParams, bool includePrior=false) const{
 //			std::vector<DataType> params=rawParams;
@@ -2038,7 +1542,7 @@ namespace likelihood{
 		//computes the gradient of the negative log likelihood with respect to the model parameters
 		std::vector<double> gradient(const std::vector<double>& p) const {
 			const size_t size=p.size();
-            using GradType=autodiff::FD<MaxDerivativeDimension>;
+			using GradType=autodiff::FD<MaxDerivativeDimension>;
 			std::vector<GradType> params(size);
 			for(size_t i=0; i<size; i++)
 				params[i]=GradType(p[i],i);
@@ -2067,22 +1571,33 @@ namespace likelihood{
 		}
 	};
 
+	///Represents the result of evaluating a likelihood at one point in the
+	///space over which it is defined
+	struct likelihoodPoint{
+		///the combination of parameters for which the likelihood was evaluated
+		std::vector<double> params;
+		///the (log) likelihood value
+		double likelihood;
+	};
+
 	//helper function for constructing a LikelihoodProblem without having to write out all of the template parameters
 	//Note that the order of the template parameters has been shuffled, to put those which cannot be deduced from the
 	//arguments (Event, DataDimension, and MaxDerivativeDimension) first so that they can be specified while the rest
 	//are left to be deduced, while the order of the function arguments is the same as for the LikelihoodProblem constructor
-	template<typename Event, int MaxDerivativeDimension=-1, typename HistogramsType, typename DataWeightConstructor, typename SimulationWeighterConstructor, typename CPrior, typename LFunc,
-	         typename LikelihoodType=LikelihoodProblem<Event,HistogramsType,DataWeightConstructor,SimulationWeighterConstructor,CPrior,LFunc,MaxDerivativeDimension>>
+	template<typename Event, int MaxDerivativeDimension=-1, typename HistogramsType, typename DataWeighter,
+			 typename... Weighters,
+			 typename CPrior, typename LFunc,
+			 typename LikelihoodType=LikelihoodProblem<Event,HistogramsType,DataWeighterConstructor,likelihood::detail::WeighterCollection<Weighters...>,CPrior,LFunc,MaxDerivativeDimension>>
 	LikelihoodType makeLikelihoodProblem(HistogramsType observation, const std::vector<HistogramsType>& simulations,
-                                         CPrior continuousPrior, std::vector<double> discretePrior,
-                                         const DataWeightConstructor& dataWeightC,
-                                         const SimulationWeighterConstructor& simWeightC,
-                                         const LFunc& likelihoodFunction,
-                                         std::vector<double> parameterSeeds,
-                                         unsigned int evaluationThreadCount=1){
+										 CPrior continuousPrior, std::vector<double> discretePrior,
+										 const DataWeighterConstructor& dataWeighterConstructor,
+										 const likelihood::detail::WeighterCollection<Weighters...>& simWeightC,
+										 const LFunc& likelihoodFunction,
+										 std::vector<double> parameterSeeds,
+										 unsigned int evaluationThreadCount=1) {
 		return(LikelihoodType(observation,simulations,
 							  continuousPrior,discretePrior,
-							  dataWeightC,simWeightC,likelihoodFunction,
+							  dataWeighterConstructor,simWeightC,likelihoodFunction,
 							  parameterSeeds,evaluationThreadCount));
 	}
 
@@ -2093,17 +1608,17 @@ namespace likelihood{
 	public:
 		BFGS_Function(FuncType f):func(f){}
 		virtual double evalF(std::vector<double> x) const{
-            //std::cout << "EvaluateF: (";
-            //for(auto xi : x) std::cout << xi << ", ";
-            //std::cout << ")\n";
+			//std::cout << "EvaluateF: (";
+			//for(auto xi : x) std::cout << xi << ", ";
+			//std::cout << ")\n";
 			return(-func.template evaluateLikelihood<double>(x));
 		}
 		virtual std::pair<double,std::vector<double>> evalFG(std::vector<double> x) const{
-            //std::cout << "EvaluateFG: (";
-            //for(auto xi : x) std::cout << xi << ", ";
-            //std::cout << ")\n";
+			//std::cout << "EvaluateFG: (";
+			//for(auto xi : x) std::cout << xi << ", ";
+			//std::cout << ")\n";
 			const size_t size=x.size();
-            using GradType=autodiff::FD<FuncType::DerivativeDimension>;
+			using GradType=autodiff::FD<FuncType::DerivativeDimension>;
 			std::vector<GradType> params(size);
 			for(size_t i=0; i<size; i++)
 				params[i]=GradType(x[i],i);
@@ -2116,7 +1631,7 @@ namespace likelihood{
 	};
 
 	template<typename Container, typename RNG>
-	std::vector<typename Container::value_type>
+	Container
 	generateSample(const std::vector<double>& weights, const Container& data, double quantity, RNG& eng){
 		assert(!data.empty());
 		assert(weights.size()==data.size());
@@ -2124,11 +1639,10 @@ namespace likelihood{
 		//decide how many events to sample
 		size_t s_quantity = std::poisson_distribution<size_t>(quantity)(eng);
 		//generate the sample
-		std::vector<typename Container::value_type> sample;
-		sample.reserve(s_quantity);
+		Container sample;
+		//sample.reserve(s_quantity);
 		for(unsigned int i=0; i<s_quantity; i++){
 			size_t idx=dist(eng);
-			//std::cout << " got index " << idx << std::endl;
 			sample.push_back(std::cref(data[idx]));
 		}
 		return(sample);
@@ -2154,8 +1668,8 @@ namespace likelihood{
 		return(generateSample(weights,data,quantity,eng));
 	}
 
-    ///A prior which gives uniform probability for the parameter to be anywhere
-    ///in a fixed range, but forbids it being outside that range.
+	///A prior which gives uniform probability for the parameter to be anywhere
+	///in a fixed range, but forbids it being outside that range.
 	struct UniformPrior{
 	private:
 		double min, max;
@@ -2180,22 +1694,16 @@ namespace likelihood{
 	public:
 		GaussianPrior(double mean, double stddev):
 		mean(mean),stddev(stddev),
-		norm(boost::math::constants::one_div_root_two_pi<double>()/stddev) {
-            if(std::isinf(stddev) || std::isnan(stddev)) {
-                norm = 0.0;
-            }
-        }
+		norm(boost::math::constants::one_div_root_two_pi<double>()/stddev){}
 
 		template<typename DataType>
 		DataType operator()(DataType x) const{
-            if(norm == 0.0)
-                return 0.0;
 			DataType z=(x-mean)/stddev;
 			return(log(norm)-z*z/2);
 		}
 	};
 
-    struct LimitedGaussianPrior{
+	struct LimitedGaussianPrior{
 	private:
 		UniformPrior limits;
 		GaussianPrior prior;
@@ -2209,65 +1717,120 @@ namespace likelihood{
 		}
 	};
 
-    struct Gaussian2DPrior{
-	private:
-		double mean0;
-		double mean1;
-		double stddev0;
-		double stddev1;
-		double correlation;
-		double lnorm;
-		double prefactor;
-	public:
-		Gaussian2DPrior(double mean0, double mean1, double stddev0, double stddev1, double correlation):
-		mean0(mean0),mean1(mean1),stddev0(stddev0),stddev1(stddev1),correlation(correlation),
-		lnorm(log(boost::math::constants::one_div_two_pi<double>()/(stddev0*stddev1*sqrt(1.0-correlation*correlation)))),
-        prefactor(-1.0/(2.0*sqrt(1.0-correlation*correlation))){
-            if(std::isinf(stddev0) || std::isinf(stddev0) || std::isnan(stddev0) || std::isnan(stddev1) || std::isnan(correlation)) {
-                lnorm = 0.0;
-                prefactor = 0.0;
-            }
-        }
-
-		template<typename DataType>
-		DataType operator()(DataType x0, DataType x1) const{
-            if(prefactor == 0.0)
-                return lnorm;
-			DataType z0=(x0-mean0)/stddev0;
-			DataType z1=(x1-mean1)/stddev1;
-			return lnorm + prefactor*(z0*z0 + z1*z1 - 2.0*correlation*z0*z1);
-		}
+	///A structure containing hints used by findParameterUncertainties to guide
+	///its bracketing and root finding of confidence interval endpoints
+	struct UncertaintySearchPlan{
+		///functions which given the best fit value of the paramter guess a value
+		///which defines the scale for searching for the confidence interval's left
+		///and right endpoints, respectively
+		std::function<double(double)> guessLow, guessHigh;
+		///The precision with which the boundaries of the confidence interval
+		///should be computed
+		double precision;
 	};
 
-	struct LimitedGaussian2DPrior{
-	private:
-		UniformPrior limits0;
-		UniformPrior limits1;
-		Gaussian2DPrior prior;
-	public:
-		LimitedGaussian2DPrior(double mean0, double mean1, double stddev0, double stddev1, double correlation, double min0, double max0, double min1, double max1):
-		limits0(min0,max0),limits1(min1,max1),prior(mean0,mean1,stddev0,stddev1,correlation){}
+	///Quickly find confidence intervals on fit parameters by assuming Wilks Theorem.
+	///Parameters for which this function is to be used are expected to have
+	///UncertaintySearchPlan associated with them in the ParameterSet, under the
+	///name "UncertaintySearchPlan".
+	///\param prob the likelihood problem for which to compute uncertainties
+	///\param ps the parameter information for the likelihood problem
+	///\param fit a function which fits for parameters which maximize the
+	///           likelihood, subject to parameters being held fixed.
+	///\param bestFit the maximum likelihood point (with any constraints)
+	///\param indicesToCompute the indices of fit paramters for which confidence
+	///       intervals should be computed, or an empty list if all free
+	///       parameters should be treated
+	///\param confidence the confidence level for which to compute intervals
+	///\return a vector of pairs, where each pair contains the lower and upper
+	///        bound of the confidence interval for one parameter. For parameters
+	///        held fixed or not scanned over, both entries in the pair will be
+	///        the best fit value for that parameter.
+	template<typename ProblemType>
+	std::vector<std::pair<double,double>>
+	findParameterUncertainties(ProblemType& prob, const ParameterSet& ps,
+							   std::function<likelihoodPoint(const ProblemType&,const ParameterSet&)> fit,
+							   const likelihoodPoint& bestFit,
+	                           const std::vector<unsigned int>& indicesToCompute={},
+	                           double confidence=0.682689492137){
+		//somewhat brute force approach due to gcc 4.8 bugs
+		auto chi2_cdf=[](double x){
+			const double norm=boost::math::constants::root_pi<double>()/tgamma(0.5);
+			return(norm*erf(sqrt(x/2)));
+		};
+		auto br=bracketRoot(chi2_cdf,confidence,0,1,0);
+		const double targetLLHDifference=findRoot(chi2_cdf,confidence,br.xin,br.xout,br.fin,br.fout,1e-14)/2;
+		//std::cout << "target LLH difference for a confidence of " << confidence << " is " << targetLLHDifference << std::endl;
 
-		template<typename DataType>
-		DataType operator()(DataType x) const{
-			return(limits(x)+prior(x));
+		//if(!quiet)
+		//	std::cout << "Finding one dimensional parameter uncertainites at confidence " << confidence << std::endl;
+
+		auto makeScanFunc=[&](unsigned int idx){
+			auto seed=bestFit.params;
+			ParameterSet cps(ps);
+			cps.fixParameter(idx);
+			return([&,seed,idx,cps](double paramValue) mutable{
+				cps.setParameterValue(idx,paramValue);
+				likelihoodPoint fr = fit(prob,cps);
+				return(fr.likelihood);
+			});
+		};
+
+		auto findParameterError=[&](unsigned int idx, double guessLow, double guessHigh, double precision, double limitLow, double limitHigh){
+			const bool verbose=false;
+			auto scanFunc=makeScanFunc(idx);
+			double middle=bestFit.params[idx];
+			if(guessLow<limitLow)
+				guessLow=limitLow;
+			if(guessHigh>limitHigh)
+				guessHigh=limitHigh;
+
+			//left side
+			auto bracket=bracketRoot(scanFunc, bestFit.likelihood+targetLLHDifference, middle, guessLow, bestFit.likelihood, limitLow, verbose);
+			double lower;
+			if(bracket.fout<bestFit.likelihood+targetLLHDifference)
+				lower=bracket.xout;
+			else
+				lower=findRoot(scanFunc, bestFit.likelihood+targetLLHDifference, bracket.xout, bracket.xin, bracket.fout, bracket.fin, precision, verbose);
+
+			//right side
+			bracket=bracketRoot(scanFunc, bestFit.likelihood+targetLLHDifference, middle, guessHigh, bestFit.likelihood, limitHigh, verbose);
+			double upper;
+			if(bracket.fout<bestFit.likelihood+targetLLHDifference)
+				upper=bracket.xout;
+			else
+				upper=findRoot(scanFunc, bestFit.likelihood+targetLLHDifference, bracket.xin, bracket.xout, bracket.fin, bracket.fout, precision, verbose);
+
+			//std::cout << "Error interval for parameter " << idx << " is [" << lower << ',' << upper << ']' << std::endl;
+			return(std::make_pair(lower,upper));
+		};
+
+		//check whether a given parameter should be scanned
+		auto shouldScan=[&indicesToCompute](unsigned int idx){
+			return(indicesToCompute.empty() || std::find(indicesToCompute.begin(),indicesToCompute.end(),idx)!=indicesToCompute.end());
+		};
+
+		std::vector<std::pair<double,double>> results;
+		for(unsigned int i=0; i<ps.numberOfParameters(); i++){
+			//skip parameters we're not interested in right now
+			//skip paramters which are being held fixed
+			//skip parameters which have no search plan attached to them
+			if(!shouldScan(i) || ps.isFixed(i) || !ps.parameterHasProperty(i,"UncertaintySearchPlan")){
+				results.push_back(std::make_pair(bestFit.params[i],bestFit.params[i]));
+				continue;
+			}
+
+			const auto& plan=ps.getParameterProperty<UncertaintySearchPlan>(i,"UncertaintySearchPlan");
+			double guessLow=plan.guessLow(bestFit.params[i]);
+			double guessHigh=plan.guessHigh(bestFit.params[i]);
+			auto result =
+			findParameterError(i, guessLow, guessHigh, plan.precision,
+							   ps.getParameterLowerLimit(i),
+							   ps.getParameterUpperLimit(i));
+			results.push_back(result);
 		}
-	};
-
-    struct ZigZagPrior{
-	private:
-		double point;
-		double scale;
-        double m;
-	public:
-		ZigZagPrior(double point, double scale, bool small):
-        point(point), scale(scale), m(int(small)*2.0 - 1.0) {}
-
-		template<typename DataType>
-		DataType operator()(DataType x) const{
-            return log((tanh(scale*(point-x)*m)+1.)/2.+1e-18)-exp(-scale*(point-x)*m);
-		}
-	};
+		return(results);
+	}
 
 } //namespace likelihood
 } //namespace phys_tools
