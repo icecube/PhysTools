@@ -1,6 +1,6 @@
 #include <iostream>
 #include "../PhysTools/autodiff.h"
-#include "../PhysTools/lbfgsb/lbfgsb.h"
+#include "../PhysTools/optimization/lbfgsb/lbfgsb.h"
 
 using namespace phys_tools::lbfgsb;
 
@@ -10,7 +10,7 @@ struct absv{
 		using std::abs;
 		return(abs(x));
 	}
-	
+
 	double minimumPosition() const{ return(0); }
 	double minimumValue() const{ return(0); }
 };
@@ -23,7 +23,7 @@ struct quadratic{
 	T operator()(T x) const{
 		return((a*x + b)*x + c);
 	}
-	
+
 	double minimumPosition() const{
 		//y=a*x^2+b*x+c
 		//dy/dx=2*a*x+b
@@ -39,7 +39,7 @@ struct sine{
 		using std::sin;
 		return(sin(x));
 	}
-	
+
 	double minimumPosition() const{
 		return(6*atan(1.)); //3 pi/2
 	}
@@ -65,15 +65,17 @@ int main(){
 	{
 		std::cout << "quadratic:\n";
 		quadratic q{3.2,1.2,-7};
-		
-		LBFGSB_Driver driver;
-		driver.addParameter(26.7);
+
+		phys_tools::ParameterSet params;
+		params.addParameter("x");
+		params.setParameterValue("x",26.7);
+		LBFGSB_Driver driver(params);
 		driver.setChangeTolerance(0); //use only gradient stopping condition
 		driver.setGradientTolerance(gtol);
 		bool success=driver.minimize(makeSimpleBFGSFunction<1>(q));
 		if(!success){
 			std::cout << " minimization failed!" << std::endl;
-			std::cout << ' ' << driver.errorMessage() << std::endl;
+			std::cout << ' ' << driver.getLastStatus() << std::endl;
 		}
 		auto min=driver.minimumPosition();
 		auto trueMin=q.minimumPosition();
@@ -99,15 +101,20 @@ int main(){
 	{
 		std::cout << "sine:\n";
 		sine s;
-		
-		LBFGSB_Driver driver;
-		driver.addParameter(3,1,2*atan(1),10*atan(1)); //search within [pi/2,5 pi/2]
+
+		phys_tools::ParameterSet params;
+		params.addParameter("x");
+		params.setParameterValue("x",3);
+		//search within [pi/2,5 pi/2]
+		params.setParameterLowerLimit("x", 2*atan(1));
+		params.setParameterUpperLimit("x",10*atan(1));
+		LBFGSB_Driver driver(params);
 		driver.setChangeTolerance(0);
 		driver.setGradientTolerance(gtol); //use only gradient stopping condition
 		bool success=driver.minimize(makeSimpleBFGSFunction<1>(s));
 		if(!success){
 			std::cout << " minimization failed!" << std::endl;
-			std::cout << ' ' << driver.errorMessage() << std::endl;
+			std::cout << ' ' << driver.getLastStatus() << std::endl;
 		}
 		auto min=driver.minimumPosition();
 		auto trueMin=s.minimumPosition();
@@ -134,9 +141,11 @@ int main(){
 	{
 		std::cout << "abs:\n";
 		absv abs;
-		
-		LBFGSB_Driver driver;
-		driver.addParameter(16);
+
+		phys_tools::ParameterSet params;
+		params.addParameter("x");
+		params.setParameterValue("x",16);
+		LBFGSB_Driver driver(params);
 		driver.setChangeTolerance(1e-10); //use only change stooping condition
 		driver.setGradientTolerance(0);
 		bool success=driver.minimize(makeSimpleBFGSFunction<1>(abs));
@@ -165,15 +174,19 @@ int main(){
 	{
 		std::cout << "mess:\n";
 		mess m;
-		
-		LBFGSB_Driver driver;
-		driver.addParameter(2,1,1e-4,2.3);
+
+		phys_tools::ParameterSet params;
+		params.addParameter("x");
+		params.setParameterValue("x",2);
+		params.setParameterLowerLimit("x",1e-4);
+		params.setParameterUpperLimit("x",2.3);
+		LBFGSB_Driver driver(params);
 		driver.setChangeTolerance(0); //use only gradient stopping condition
 		driver.setGradientTolerance(gtol);
 		bool success=driver.minimize(makeSimpleBFGSFunction<1>(m));
 		if(!success){
 			std::cout << " minimization failed!" << std::endl;
-			std::cout << ' ' << driver.errorMessage() << std::endl;
+			std::cout << ' ' << driver.getLastStatus() << std::endl;
 		}
 		//settle for just checking the function's gradient
 		auto result=m(phys_tools::autodiff::FD<1>(driver.minimumPosition().front(),0));
