@@ -19,11 +19,12 @@ MAKEDEPEND = $(CXX) $(CXXFLAGS) -MM -MF $*.d $<
 LIBRARIES=boost_iostreams
 
 # core source files
-SRCS = gnuplot.cpp gnuplot-normalize.cpp pipe.cpp plottable_histograms.cpp hdf5_serialization.cpp axis.cpp bin_types.cpp lbfgsb/linpack.cpp lbfgsb/lbfgsb.cpp
+SRCS = gnuplot.cpp gnuplot-normalize.cpp pipe.cpp plottable_histograms.cpp hdf5_serialization.cpp axis.cpp bin_types.cpp memory_dump.cpp tableio.cpp optimization/lbfgsb/linpack.cpp optimization/lbfgsb/lbfgsb.cpp optimization/ParameterSet.cpp
 HEADERS = $(shell ls $(BASEDIR)/PhysTools/*.h $(BASEDIR)/PhysTools/*.tcpp)
 DETAIL_HEADERS = $(shell ls $(BASEDIR)/PhysTools/detail/*.h)
-LBFGSB_HEADERS = $(shell ls $(BASEDIR)/PhysTools/lbfgsb/*.h)
+LBFGSB_HEADERS = $(shell ls $(BASEDIR)/PhysTools/optimization/lbfgsb/*.h)
 LIKELIHOOD_HEADERS = $(shell ls $(BASEDIR)/PhysTools/likelihood/*.h)
+OPTIMIZATION_HEADERS = $(shell ls $(BASEDIR)/PhysTools/optimization/*.h)
 
 OBJS := $(SRCS:.cpp=.o)
 DEPS := $(SRCS:.cpp=.P)
@@ -65,18 +66,35 @@ clean:
 	rm -f $(DYN_PRODUCT)
 
 install : 
-	mkdir -p $(PREFIX)
-	mkdir -p $(PREFIX)/lib
-	cp $(STAT_PRODUCT) $(PREFIX)/lib/$(STAT_PRODUCT)
-	cp $(DYN_PRODUCT) $(PREFIX)/lib/$(DYN_PRODUCT)
-	mkdir -p $(PREFIX)/include/$(NAME)
-	cp $(HEADERS) $(PREFIX)/include/$(NAME)/
-	mkdir -p $(PREFIX)/include/$(NAME)/detail
-	cp $(DETAIL_HEADERS) $(PREFIX)/include/$(NAME)/detail/
-	mkdir -p $(PREFIX)/include/$(NAME)/lbfgsb
-	cp $(LBFGSB_HEADERS) $(PREFIX)/include/$(NAME)/lbfgsb/
-	mkdir -p $(PREFIX)/include/$(NAME)/likelihood
-	cp $(LIKELIHOOD_HEADERS) $(PREFIX)/include/$(NAME)/likelihood/
+	@mkdir -p $(PREFIX)
+	@echo Installing libraries in $(PREFIX)/lib
+	@mkdir -p $(PREFIX)/lib
+	@cp $(STAT_PRODUCT) $(PREFIX)/lib/$(STAT_PRODUCT)
+	@cp $(DYN_PRODUCT) $(PREFIX)/lib/$(DYN_PRODUCT)
+	@echo Installing headers in $(PREFIX)/include/$(NAME)
+	@mkdir -p $(PREFIX)/include/$(NAME)
+	@cp $(HEADERS) $(PREFIX)/include/$(NAME)/
+	@mkdir -p $(PREFIX)/include/$(NAME)/detail
+	@cp $(DETAIL_HEADERS) $(PREFIX)/include/$(NAME)/detail/
+	@mkdir -p $(PREFIX)/include/$(NAME)/likelihood
+	@cp $(LIKELIHOOD_HEADERS) $(PREFIX)/include/$(NAME)/likelihood/
+	@mkdir -p $(PREFIX)/include/$(NAME)/optimization
+	@cp $(OPTIMIZATION_HEADERS) $(PREFIX)/include/$(NAME)/optimization/
+	@mkdir -p $(PREFIX)/include/$(NAME)/optimization/lbfgsb
+	@cp $(LBFGSB_HEADERS) $(PREFIX)/include/$(NAME)/optimization/lbfgsb/
+	@echo Installing config information in $(PREFIX)/lib/pkgconfig
+	@mkdir -p $(PREFIX)/lib/pkgconfig
+	@cp phystools.pc $(PREFIX)/lib/pkgconfig
+	@../check_install.sh phystools "$(PREFIX)"
+
+uninstall :
+	@echo Removing headers from $(PREFIX)/include/PhysTools
+	@rm -rf $(PREFIX)/include/PhysTools
+	@echo Removing libraries from $(PREFIX)/lib
+	@rm -f $(PREFIX)/lib/$(DYN_PRODUCT)
+	@rm -f $(PREFIX)/lib/$(STAT_PRODUCT)
+	@echo Removing config information from $(PREFIX)/lib/pkgconfig
+	@rm -f $(PREFIX)/lib/pkgconfig/phystools.pc
 
 docs : doxygen
 
