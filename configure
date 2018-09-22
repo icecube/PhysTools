@@ -311,6 +311,12 @@ if [ ! -d ./build/ ]; then
     mkdir build;
 fi
 
+# Resolve PREFIX absolutely
+OLDPWD=`pwd`
+cd "$PREFIX"
+PREFIX=`pwd`
+cd "$OLDPWD"
+
 echo "Generating config.mk..."
 echo "# Compiler
 CC=$CC
@@ -332,6 +338,37 @@ CXXFLAGS+=${BOOST_CFLAGS} ${HDF5_CFLAGS}
 LDFLAGS+=-fPIC ${BOOST_LDFLAGS} ${HDF5_LDFLAGS}
 
 " > build/config.mk
+
+echo "
+export CXX=\"${CXX}\"
+export CXXFLAGS=\"-std=c++11 -O0 -g -I../ ${BOOST_CFLAGS} ${HDF5_CFLAGS}\"
+export LDFLAGS=\"-L../build -lPhysTools ${BOOST_LDFLAGS} ${HDF5_LDFLAGS}\"
+" > test/env_vars.sh
+if uname | grep -q 'Darwin' ; then
+	printf "export DYLD_LIBRARY_PATH=\"" >> test/env_vars.sh
+	if [ "$DYLD_LIBRARY_PATH" ]; then
+		printf "${DYLD_LIBRARY_PATH}:" >> test/env_vars.sh
+	fi
+	printf "/lib:/usr/lib:\${HOME}/lib:/usr/local/lib:" >> test/env_vars.sh
+else
+	printf "export LD_LIBRARY_PATH=\"" >> test/env_vars.sh
+fi
+echo "../lib:${BOOST_LIBDIR}:${HDF5_LIBDIR}\"" >> test/env_vars.sh
+
+echo "Generating pkg-config file..."
+echo "prefix=$PREFIX" > build/phystools.pc
+echo '
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: PhysTools
+Description: A toolbox of utilities for physics analysis
+URL: http://code.icecube.wisc.edu/svn/sandbox/cweaver/PhysTools ' >> build/phystools.pc
+echo "Version: $VERSION" >> build/phystools.pc
+echo 'Requires: hdf5 >= 1.8' >> build/phystools.pc
+echo 'Libs: -L${libdir} -lPhysTools '"-L${BOOST_LIBDIR} -lboost_system${BOOST_LIB_SUFFIX}  -lboost_iostreams${BOOST_LIB_SUFFIX}"'
+Cflags: -I${includedir} '"-I${BOOST_INCDIR}"'
+' >> build/phystools.pc
 
 echo "Done."
 echo "To build the library, run make"
