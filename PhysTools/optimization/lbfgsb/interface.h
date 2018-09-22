@@ -4,7 +4,8 @@
 #include <cassert>
 #include <cstdint>
 #include <vector>
-#include "../autodiff.h"
+#include "PhysTools/autodiff.h"
+#include "PhysTools/optimization/ParameterSet.h"
 
 namespace phys_tools{
 ///The LBFGSB algorithm for function minimization with gradients
@@ -18,7 +19,7 @@ public:
 	///Evaluate the value of the function and its gradient at x
 	virtual std::pair<double,std::vector<double>> evalFG(std::vector<double> x) const=0;
 };
-	
+
 ///Base class for common cases of functions which can be minimized with LBFGSB_Driver.
 ///
 /// This adapter class allows any subtype which implements
@@ -58,7 +59,7 @@ private:
 		convertArgType(phys_tools::autodiff::FD<Arity>, double x, unsigned int index){
 			return(phys_tools::autodiff::FD<Arity>(x,index));
 		}
-		
+
 		template<typename... Args>
 		T invokeCompute(const Derived& f, const std::vector<double>& x, Args... args){
 			return computer<I-1,T>().invokeCompute(f,x,convertArgType(T(),x[I-1],I-1),args...);
@@ -101,7 +102,7 @@ struct simpleFunctionWrapper : public SimpleBFGSFunction<simpleFunctionWrapper<A
 	operator FuncType&() const{ return(f); }
 };
 } //namespace detail
-	
+
 ///Adapts any suitably callable object to be minimized with LBFGSB_Driver.
 ///
 /// Like SimpleBFGSFunction this function makes it easy to adapt an object which
@@ -151,28 +152,13 @@ makeSimpleBFGSFunction(FuncType&& f){
 class LBFGSB_Driver{
 private:
 	//variables related to the full set of function parameters specified by the user
-	
-	///number of variables in the problem being solved
-	size_t nVar;
-	///initial values for the parameters
+	///Fit parameters
+	const ParameterSet& parameters;
+	///Current values of parameters
 	std::vector<double> parameterValues;
-	///scaling factors for the parameters
-	std::vector<double> parameterScales;
-	///the lower bounds for each variable
-	std::vector<double> lowerBounds;
-	///the upper bounds for each variable
-	std::vector<double> upperBounds;
-	///defines which bounds are used for each variable
-	/// 0 : variable i is unbounded
-	/// 1 : variable i is bounded below only
-	/// 2 : variable i is bounded below and above
-	/// 3 : variable i is bounded above only
-	std::vector<int> boundsTypes;
-	//indexes of fixed parameters; must be kept in sorted order
-	std::vector<size_t> fixedParams;
-	
+
 	//variables related to the minimizer itself
-	
+
 	///number of previous gradients to store for the hessian approximation
 	size_t historySize;
 	///tolerance for absolute change in function values; if the change in
@@ -184,75 +170,31 @@ private:
 	///divided element-wise by parameterScales) the minimization is considered
 	///to have converged
 	double gradTol;
-	
+
 	///records the value of the objective function at the best point found by minimizing
 	///not valid until after minimize() has been called at least once!
 	double finalFunctionValue;
 	///Number of function evaluations performed during the last call to minimize()
 	size_t nEvals;
-    
-    std::string lastError;
-	
-	///copy values from a vector with all parameters
-	///to a vector including only free parameters
-	///\param externalVector the evaulation position including all parameters
-	///\param internalVector the evaulation position including only free parameters
-	///\pre internalVector.size()==externalVector.size()-fixedParams.size()
-	template<typename T>
-	void externalToInternal(const std::vector<T>& externalVector,
-							std::vector<T>& internalVector){
-		//i is the external index
-		//j is the internal index
-		//k is the index in fixedParams
-		const size_t nFixed=fixedParams.size();
-		for(size_t i=0, j=0, k=0; i<nVar; i++){
-			if(k<nFixed && fixedParams[k]==i){
-				k++;
-				continue;
-			}
-			internalVector[j]=externalVector[i];
-			j++;
-		}
-	}
-	
-	///copy values from a vector with only free parameters
-	///to a vector including all parameters, without disturbing the
-	///existing values in the full vector corresponding to fixed parameters
-	///\param internalVector the evaulation position including only free parameters
-	///\param externalVector the evaulation position including all parameters
-	///\pre internalVector.size()==externalVector.size()-fixedParams.size()
-	template<typename T>
-	void internalToExternal(const std::vector<T>& internalVector,
-							std::vector<T>& externalVector){
-		//i is the external index
-		//j is the internal index
-		//k is the index in fixedParams
-		const size_t nFixed=fixedParams.size();
-		for(size_t i=0, j=0, k=0; i<nVar; i++){
-			if(k<nFixed && fixedParams[k]==i){
-				k++;
-				continue;
-			}
-			externalVector[i]=internalVector[j];
-			j++;
-		}
-	}
-	
+
+    std::string lastStatus;
+
 public:
-	LBFGSB_Driver():
-	nVar(0),
+	LBFGSB_Driver(const ParameterSet& ps):
+	parameters(ps),
+	parameterValues(ps.getParameterValues()),
 	historySize(10),
 	changeTol(1e-8),
 	gradTol(1e-8),
 	finalFunctionValue(std::numeric_limits<double>::quiet_NaN()),
 	nEvals(0)
 	{}
-	
+
 	///Set the number of past gradient values which should be used to estimate the hessian
 	void setHistorySize(unsigned int size){
 		historySize=size;
 	}
-	
+
 	///Set the termination tolerance threshold for changes in successive values of the objective function
 	void setChangeTolerance(double tol){
 		changeTol=tol;
@@ -261,120 +203,7 @@ public:
 	void setGradientTolerance(double tol){
 		gradTol=tol;
 	}
-	
-	///Add a function parameter
-	///\param value the initial value to use for this parameter
-	///\param scale the factor by which the component of the gradient
-	///             corresponding to this parameter should be rescaled
-	///             when testing for the flatness of the objective function
-	///\param lowerBound the smallest value allowed for this parameter;
-	///             if negative infinity this parameter is not bounded below
-	///\param upperBound the largest value allowed for this parameter;
-	///             if infinity this parameter is not bounded above
-	void addParameter(double value, double scale=1,
-					  double lowerBound=-std::numeric_limits<double>::infinity(),
-					  double upperBound=std::numeric_limits<double>::infinity()){
-		nVar++;
-		parameterValues.push_back(value);
-		if(scale<=0)
-			throw std::domain_error("Invalid parameter scale: "+std::to_string(scale));
-		parameterScales.push_back(scale);
-		lowerBounds.push_back(lowerBound);
-		upperBounds.push_back(upperBound);
-		int boundType=0;
-		if(lowerBound>-std::numeric_limits<double>::infinity())
-			boundType=1;
-		if(upperBound<std::numeric_limits<double>::infinity())
-			boundType=(boundType==1?2:3);
-		boundsTypes.push_back(boundType);
-		if(boundType==2 && upperBound<=lowerBound)
-			throw std::runtime_error("Conflicting parameter bounds for parameter "
-			                         +std::to_string(nVar-1)+": lower bound "
-			                         +std::to_string(lowerBound)+", upper bound "
-			                         +std::to_string(upperBound));
-	}
-	///Set the initial value for a parameter
-	///\param idx the index of the parameter to set
-	///\param val the value to set for the parameter
-	void setParameterValue(size_t idx, double val){
-		assert(idx<nVar);
-		parameterValues[idx]=val;
-	}
-	///Get the value of a parameter
-	///\param idx the index of the parameter to fetch
-	double getParameterValue(size_t idx){
-		assert(idx<nVar);
-		return(parameterValues[idx]);
-	}
-	///Set the gradient scaling factor for a parameter
-	///\param idx the index of the parameter to set
-	///\param scale the scale factor to use for this parameter's component of the gradient
-	void setParameterScale(size_t idx, double scale){
-		assert(idx<nVar);
-		parameterScales[idx]=scale;
-	}
-	///Set or unset the lower limit for a parameter
-	///\param idx the index of the parameter to set
-	///\param lim the limiting value to set;
-	///           if negative infinity any lower bound on this parameter is removed
-	void setParameterLowerLimit(size_t idx, double lim){
-		assert(idx<nVar);
-		lowerBounds[idx]=lim;
-		if(lim>-std::numeric_limits<double>::infinity()){
-			if(boundsTypes[idx]==0)
-				boundsTypes[idx]=1;
-			else if(boundsTypes[idx]==3)
-				boundsTypes[idx]=2;
-		}
-		else{ //we are _unsetting_ this bound!
-			if(boundsTypes[idx]==1)
-				boundsTypes[idx]=0;
-			else if(boundsTypes[idx]==2)
-				boundsTypes[idx]=3;
-		}
-	}
-	///Set or unset the upper limit for a parameter
-	///\param idx the index of the parameter to set
-	///\param lim the limiting value to set;
-	///           if infinity any upper bound on this parameter is removed
-	void setParameterUpperLimit(size_t idx, double lim){
-		assert(idx<nVar);
-		upperBounds[idx]=lim;
-		if(lim<std::numeric_limits<double>::infinity()){
-			if(boundsTypes[idx]==0)
-				boundsTypes[idx]=3;
-			else if(boundsTypes[idx]==1)
-				boundsTypes[idx]=2;
-		}
-		else{ //we are _unsetting_ this bound!
-			if(boundsTypes[idx]==3)
-				boundsTypes[idx]=0;
-			else if(boundsTypes[idx]==1)
-				boundsTypes[idx]=2;
-		}
-	}
-	///Mark a parameter to be held fixed
-	///All fixed parameters will be hidden from the minimizer,
-	///and their initial values will be used for all function evaluations.
-	///Has no effect if the parameter is already fixed.
-	///\param idx the index of the parameter to fix
-	void fixParameter(size_t idx){
-		if(std::find(fixedParams.begin(),fixedParams.end(),idx)==fixedParams.end()){
-			if(std::binary_search(fixedParams.begin(),fixedParams.end(),idx))
-				return;
-			fixedParams.push_back(idx);
-			std::sort(fixedParams.begin(),fixedParams.end());
-		}
-	}
-	///Release a fixed parameter to be minimized normally
-	///Has no effect if the parameter is already free.
-	///\param idx the index of the parameter to free
-	void freeParameter(size_t idx){
-		auto it=std::find(fixedParams.begin(),fixedParams.end(),idx);
-		if(it!=fixedParams.end())
-			fixedParams.erase(it);
-	}
-	
+
 	///Perform a minimization of a function with respect to the free parameters
 	///\param func the objective function to be minimized
 	///\returns true if minimization successfully converged
@@ -385,15 +214,41 @@ public:
 	///function evaluations performed during the minimization attempt.
 	bool minimize(const BFGS_FunctionBase& func){
 		//number of currently free variables
-		int effectiveNVar=nVar-fixedParams.size();
+		int effectiveNVar=parameters.numberOfFreeParameters();
+
 		if(effectiveNVar==0){ //the 0D case is so easy we don't have to call a library
 			finalFunctionValue=func.evalF(parameterValues);
 			nEvals=1;
-			lastError.clear();
+			lastStatus.clear();
 			return(true);
 		}
 		assert(effectiveNVar>0);
-		
+
+		///scaling factors for the parameters
+		std::vector<double> parameterScales(effectiveNVar,1.);
+		//get any scales specified by the user, keeping ones when not specified
+		for(std::size_t i=0; i<effectiveNVar; i++){
+			std::size_t idx=parameters.getFreeParameterIndex(i);
+			if(parameters.parameterHasProperty(idx,"GralTolScale"))
+				parameterScales[i]=parameters.getParameterProperty<double>(idx,"GralTolScale");
+		}
+		///the lower bounds for each variable
+		std::vector<double> lowerBounds=parameters.getFreeParameterLowerBounds();
+		///the upper bounds for each variable
+		std::vector<double> upperBounds=parameters.getFreeParameterUpperBounds();
+		///defines which bounds are used for each variable
+		/// 0 : variable i is unbounded
+		/// 1 : variable i is bounded below only
+		/// 2 : variable i is bounded below and above
+		/// 3 : variable i is bounded above only
+		std::vector<int> boundsTypes(effectiveNVar,0);
+		for(std::size_t i=0; i<effectiveNVar; i++){
+			if(lowerBounds[i]>-std::numeric_limits<double>::infinity())
+				boundsTypes[i]=1;
+			if(upperBounds[i]<std::numeric_limits<double>::infinity())
+				boundsTypes[i]=(boundsTypes[i]==1 ? 2 : 3);
+		}
+
 		///buffer for receiving instructions from setulb
 		char task[60];
 		///buffer for internal calculations (iwa)
@@ -408,7 +263,7 @@ public:
 		double diagnosticBuf2[29];
 		int iprint=0; //dummy var
 		int histSize=historySize;
-		
+
 		//position known to the minimizer, contains only free variables
 		std::vector<double> pos(effectiveNVar);
 		double fval;
@@ -416,36 +271,23 @@ public:
 		std::vector<double> fullGrad;
 		//gradient known to the minimizer, contains only free variables
 		std::vector<double> grad(effectiveNVar);
-		//lower bounds for free variables only
-		std::vector<double> lb(effectiveNVar);
-		externalToInternal(lowerBounds,lb);
-		//upper bounds for free variables only
-		std::vector<double> ub(effectiveNVar);
-		externalToInternal(upperBounds,ub);
-		//bounds types for free variables only
-		std::vector<int> bt(effectiveNVar);
-		externalToInternal(boundsTypes,bt);
-		//parameter scales for free variables only
-		std::vector<double> scales(effectiveNVar);
-		externalToInternal(parameterScales,scales);
-		
-		
+
 		//prepare for first iteration
 		memset(task, 0, 60);
 		strncpy(task, "START", 5);
-		externalToInternal(parameterValues,pos);
+		parameters.extractFreeParameters(parameterValues,pos);
 		nEvals=0;
-		
+
 		bool done=false;
-		
+
 		while(!done){
 			setulb_(&effectiveNVar,     //n
 					&histSize,          //m
 					&pos[0],            //x
-					&lb[0],             //l
-					&ub[0],             //u
-					&bt[0],             //nbd
-					&scales[0],         //scale
+					&lowerBounds[0],    //l
+					&upperBounds[0],    //u
+					&boundsTypes[0],    //nbd
+					&parameterScales[0],//scale
 					&fval,              //f
 					&grad[0],           //g
 					&changeTol,         //factr
@@ -459,28 +301,28 @@ public:
 					&diagnosticBuf[4],  //isave
 					&diagnosticBuf2[0]  //dsave
 					);
-			
+
 			switch(task[0]){
 				case 'A': //failure
 					//copy back fit point and value
-					internalToExternal(pos,parameterValues);
+					parameters.insertFreeParameters(pos,parameterValues);
 					finalFunctionValue=fval;
 					done=true;
 					//failure indicated to the user by return value below
 					break;
 				case 'C': //converged
 					//copy back fit point and value
-					internalToExternal(pos,parameterValues);
+					parameters.insertFreeParameters(pos,parameterValues);
 					finalFunctionValue=fval;
 					done=true;
 					break;
 				case 'E':
-					lastError=task;
+					lastStatus=task;
 					throw std::runtime_error("Invalid parameters passed to setulb");
 				case 'F': //need to evaluate function
-					internalToExternal(pos,parameterValues);
+					parameters.insertFreeParameters(pos,parameterValues);
 					std::tie(fval,fullGrad)=func.evalFG(parameterValues);
-					externalToInternal(fullGrad,grad);
+					parameters.extractFreeParameters(fullGrad,grad);
 					nEvals++;
 					break;
 				case 'N': //iteration completed
@@ -489,30 +331,27 @@ public:
 			}
 		}
         bool success=(task[0]=='C');
-        if(success)
-            lastError.clear();
-        else
-            lastError=task;
+		lastStatus=task;
 		return(success);
 	}
-    
-    std::string errorMessage() const{
-        return(lastError);
+
+    std::string getLastStatus() const{
+        return(lastStatus);
     }
-	
+
 	///Get the smallest function value found by the minimizer
 	///\pre minimize() must have been called previously
 	double minimumValue() const{
 		return(finalFunctionValue);
 	}
-	
+
 	///Get the parametervalues at which the smallest function value
 	///was found by the minimizer
 	///\pre minimize() must have been called previously
 	std::vector<double> minimumPosition() const{
 		return(parameterValues);
 	}
-	
+
 	///Get the number of function (and gradient) evaluations
 	///performed during the last minimization attempt
 	///\pre minimize() must have been called previously
@@ -520,7 +359,7 @@ public:
 		return(nEvals);
 	}
 };
-    
+
 } //namespace lbfgsb
 } //namespace phys_tools
 
