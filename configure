@@ -311,6 +311,14 @@ if [ ! -d ./build/ ]; then
     mkdir build;
 fi
 
+if [ ! -d ./buildoptimization/ ]; then
+    mkdir build/optimization;
+fi
+
+if [ ! -d ./buildoptimization/lbfgsb/ ]; then
+    mkdir build/optimization/lbfgsb;
+fi
+
 # Resolve PREFIX absolutely
 OLDPWD=`pwd`
 cd "$PREFIX"
