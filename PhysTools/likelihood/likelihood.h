@@ -270,7 +270,6 @@ namespace detail {
 
 		using std::abs;
 		using std::log;
-		using std::pow;
 		if (abs(x) > 1e-4)
 		{
 			// x is large enough that the obvious evaluation is OK
@@ -279,7 +278,10 @@ namespace detail {
 
 		// Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
 		// Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
-		return x-pow(x,2.0)/2.0+pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+        T x2 = x*x;
+        T x3 = x2*x;
+        T x4 = x3*x;
+		return x-x2/2.0+x3/3.0-x4/4.0;
 	};
 
 	template<typename T>
@@ -295,7 +297,6 @@ namespace detail {
 
 		using std::abs;
 		using std::log;
-		using std::pow;
 		if (abs(x) > 1e-4)
 		{
 			// x is large enough that the obvious evaluation is OK
@@ -304,7 +305,10 @@ namespace detail {
 
 		// Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
 		// Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
-		return -x-pow(x,2.0)/2.0-pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+        T x2 = x*x;
+        T x3 = x2*x;
+        T x4 = x3*x;
+		return -x-x2/2.0-x3/3.0-x4/4.0;
 	};
 
 	// A poisson likelihood with gamma distribution prior
@@ -581,7 +585,7 @@ namespace detail {
                 }
             }
 
-            T alpha = pow(w_sum, T(2))/w2_sum;
+            T alpha = w_sum*w_sum/w2_sum;
             T beta = w_sum/w2_sum;
             T L = likelihood::detail::gammaPriorPoissonLikelihood()(k, alpha, beta);
 
@@ -616,7 +620,7 @@ namespace detail {
             }
 
             const T & mu = w_sum;
-            T mu2 = pow(mu, T(2));
+            T mu2 = mu*mu;
             const T & sigma2 = w2_sum;
 
             T beta = (mu + sqrt(mu2+sigma2*4.0))/(sigma2*2);
