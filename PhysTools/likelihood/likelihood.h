@@ -571,7 +571,10 @@ namespace likelihood{
 
         // Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
         // Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
-        return x-pow(x,2.0)/2.0+pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+        T x2 = x*x;
+        T x3 = x2*x;
+        T x4 = x3*x;
+        return x-x2/2.0+x3/3.0-x4/4.0;
     };
 
     template<typename T>
@@ -593,7 +596,10 @@ namespace likelihood{
 
         // Use Taylor approx. log(1 + x) = x - x^2/2 with error roughly x^3/3
         // Since |x| < 10^-4, |x|^3 < 10^-12, relative error less than 10^-8
-        return -x-pow(x,2.0)/2.0-pow(x,3.0)/3.0-pow(x,4.0)/4.0;
+        T x2 = x*x;
+        T x3 = x2*x;
+        T x4 = x3*x;
+        return -x-x2/2.0-x3/3.0-x4/4.0;
     };
 
     template<typename T>
@@ -1011,7 +1017,7 @@ namespace likelihood{
                 }
             }
 
-            T alpha = pow(w_sum, T(2))/w2_sum;
+            T alpha = w_sum*w_sum/w2_sum;
             T beta = w_sum/w2_sum;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
 
@@ -1042,7 +1048,7 @@ namespace likelihood{
             }
 
             const T & mu = w_sum;
-            T mu2 = pow(mu, T(2));
+            T mu2 = mu*mu;
             const T & sigma2 = w2_sum;
 
             T beta = (mu + sqrt(mu2+sigma2*4.0))/(sigma2*2);
@@ -1450,7 +1456,7 @@ namespace likelihood{
 					for(const RawEvent& e : ((entryStoringBin<Event>)*expIt)){
                         w = weighter(e);
                         assert(w >= 0);
-                        w2 = pow(w, DataType(2.0));
+                        w2 = w * w;
                         assert(w2 >= 0);
                         assert(e.num_events > 0);
                         n_events += e.num_events;
@@ -1531,7 +1537,7 @@ namespace likelihood{
 					for(const RawEvent& e : ((entryStoringBin<Event>)*it)) {
                         w = weighter(e);
                         assert(w >= 0);
-                        w2 = pow(w, DataType(2.0));
+                        w2 = w*w;
                         assert(w2 >= 0);
                         assert(e.num_events > 0);
                         n_events += e.num_events;
