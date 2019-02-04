@@ -995,7 +995,7 @@ namespace likelihood{
         }
     };
 
-    struct bayesianSAYLikelihood {
+    struct SAYLikelihood {
         template<typename T>
         T operator()(double k, T const & w_sum, T const & w2_sum) const {
             if(w_sum <= 0 || w2_sum < 0) {
@@ -1017,60 +1017,11 @@ namespace likelihood{
                 }
             }
 
-            T alpha = w_sum*w_sum/w2_sum;
+            T alpha = w_sum*w_sum/w2_sum + one;
             T beta = w_sum/w2_sum;
             T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
 
             return L;
-        }
-    };
-
-    struct frequentistSAYLikelihood {
-        template<typename T>
-        T operator()(double k, T const & w_sum, T const & w2_sum) const {
-            if(w_sum <= 0 || w2_sum < 0) {
-                return(k==0?0:-std::numeric_limits<T>::max());
-            }
-
-            if(w2_sum == 0) {
-                return poissonLikelihood()(k, w_sum, w2_sum);
-            }
-
-            T one(1);
-            T zero(0);
-            if(w_sum == zero) {
-                if(k == 0) {
-                    return zero;
-                }
-                else {
-                    return T(-std::numeric_limits<double>::infinity());
-                }
-            }
-
-            const T & mu = w_sum;
-            T mu2 = mu*mu;
-            const T & sigma2 = w2_sum;
-
-            T beta = (mu + sqrt(mu2+sigma2*4.0))/(sigma2*2);
-            T alpha = (mu*sqrt(mu2+sigma2*4.0)/sigma2 + mu2/sigma2 + 2.0) / 2.0;
-            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
-
-            return L;
-        }
-    };
-
-    struct SAYLikelihood {
-        const bool is_frequentist;
-        SAYLikelihood():is_frequentist(false) {}
-        SAYLikelihood(bool is_frequentist):is_frequentist(is_frequentist) {}
-        bayesianSAYLikelihood bayesian;
-        frequentistSAYLikelihood frequentist;
-        template<typename T>
-        T operator()(double k, T const & w_sum, T const & w2_sum) const {
-            if(is_frequentist)
-                return frequentist(k, w_sum, w2_sum);
-            else
-                return bayesian(k, w_sum, w2_sum);
         }
     };
 
