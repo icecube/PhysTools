@@ -2129,6 +2129,36 @@ namespace likelihood{
 		}
 	};
 
+    struct PowerPrior{
+	private:
+		double power, min, max, lnorm;
+	public:
+		PowerPrior(double power=0.0, double min=-std::numeric_limits<double>::infinity(),
+				double max=std::numeric_limits<double>::infinity()):
+		        power(power), min(min), max(max) {
+            assert(min >= 0.0);
+            if(min == 0) {
+                assert(power >= 0.0);
+            }
+            else if(std::isfinite(max) && std::isfinite(min)) {
+                lnorm = log((std::pow(min, power+1.0) - std::pow(max, power+1.0))/(power+1.0));
+            }
+            else if(std::isfinite(min) && power < 1.0) {
+                lnorm = log(std::pow(min, power+1.0)/(power+1.0));
+            }
+            else {
+                lnorm = 0.0;
+            }
+        }
+
+		template<typename DataType>
+		DataType operator()(DataType x) const{
+			if(x<min || x>max)
+				return(DataType(-std::numeric_limits<double>::infinity()));
+			return power*log(x) - lnorm;
+		}
+	};
+
 	struct GaussianPrior{
 	private:
 		double mean;
