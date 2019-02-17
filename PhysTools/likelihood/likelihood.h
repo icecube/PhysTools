@@ -1362,6 +1362,11 @@ namespace likelihood{
 			return(parameterSeeds);
 		}
 
+        void setSeed(const std::vector<double>& newSeed) {
+			assert(newSeed.size() == parameterSeeds.size());
+            parametersSeeds = newSeed;
+		}
+
 		void setObservation(const HistogramsType& newObs){
 			observation=newObs;
 		}
