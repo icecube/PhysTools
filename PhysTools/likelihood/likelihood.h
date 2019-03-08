@@ -2142,8 +2142,8 @@ namespace likelihood{
 				double max=std::numeric_limits<double>::infinity()):
 		        power(power), min(min), max(max) {
             assert(min >= 0.0);
-            if(min == 0) {
-                assert(power >= 0.0);
+            if(min == 0 and power <= 0) {
+                lnorm = 0.0;
             }
             else if(std::isfinite(max) && std::isfinite(min)) {
                 lnorm = log((std::pow(min, power+1.0) - std::pow(max, power+1.0))/(power+1.0));
@@ -2214,7 +2214,7 @@ namespace likelihood{
 		Gaussian2DPrior(double mean0, double mean1, double stddev0, double stddev1, double correlation):
 		mean0(mean0),mean1(mean1),stddev0(stddev0),stddev1(stddev1),correlation(correlation),
 		lnorm(log(boost::math::constants::one_div_two_pi<double>()/(stddev0*stddev1*sqrt(1.0-correlation*correlation)))),
-        prefactor(-1.0/(2.0*sqrt(1.0-correlation*correlation))){
+        prefactor(-1.0/(2.0*(1.0-correlation*correlation))){
             if(std::isinf(stddev0) || std::isinf(stddev0) || std::isnan(stddev0) || std::isnan(stddev1) || std::isnan(correlation)) {
                 lnorm = 0.0;
                 prefactor = 0.0;
