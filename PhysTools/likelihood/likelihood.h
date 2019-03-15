@@ -2142,7 +2142,7 @@ namespace likelihood{
 				double max=std::numeric_limits<double>::infinity()):
 		        power(power), min(min), max(max) {
             assert(min >= 0.0);
-            if(min == 0 and power <= 0) {
+            if(min == 0.0 and power <= 0.0) {
                 lnorm = 0.0;
             }
             else if(std::isfinite(max) && std::isfinite(min)) {
@@ -2160,6 +2160,8 @@ namespace likelihood{
 		DataType operator()(DataType x) const{
 			if(x<min || x>max)
 				return(DataType(-std::numeric_limits<double>::infinity()));
+            else if(power == 0.0)
+                return 0.0;
 			return power*log(x) - lnorm;
 		}
 	};
