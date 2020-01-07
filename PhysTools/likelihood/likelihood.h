@@ -153,6 +153,110 @@ namespace detail {
 		};
 	}
 
+	template<typename Weight, typename Event, typename... WCs>
+	struct SwitchableAsimovWeighterConstructor{
+		static_assert(sizeof...(WCs)>0,"At least one weighter constructor implementation is required");
+
+		std::tuple<WCs...> implementations;
+		unsigned int selection;
+
+		SwitchableAsimovWeighterConstructor(WCs&&... wcs):implementations(wcs...),selection(0){}
+
+        template<typename U, typename DataType>
+        struct type_convert {
+        };
+
+        template<typename U>
+        struct type_convert<U, U> {
+            U operator()(U const & x) const{
+                return U(x);
+            }
+        };
+
+        template<typename U, unsigned int Dim, typename T>
+        struct type_convert<U, phys_tools::autodiff::FD<Dim, T>> {
+            using result_type=phys_tools::autodiff::FD<Dim, T>;
+            U operator()(result_type const & x) const{
+                return type_convert<U, T>()(x.value());
+            }
+        };
+
+		template<unsigned int index, typename DataType>
+		struct evaluator{
+            using weighter_type = std::function<Weight(Event const &)>;
+            weighter_type operator()(const SwitchableAsimovWeighterConstructor& sw, const std::vector<DataType> & params) const{
+				if(index==sw.selection) {
+					auto weighter_instance = std::get<index>(sw.implementations)(params);
+                    using ResultType = decltype(weighter_instance(std::declval<Event>()));
+                    weighter_type weighter = [=](Event const & e)->Weight{return type_convert<Weight,ResultType>()(weighter_instance(e));};
+                    return weighter;
+                }
+				return(evaluator<index+1,DataType>()(sw,params));
+			}
+		};
+
+		template<typename DataType> //invalid index case to stop template recursion
+		struct evaluator<sizeof...(WCs), DataType>{
+            using weighter_type = std::function<Weight(Event const &)>;
+			weighter_type operator()(const SwitchableAsimovWeighterConstructor& sw, const std::vector<DataType> & params) const{
+				__builtin_unreachable();
+			}
+		};
+
+        template<typename DataType>
+		std::function<Weight(Event const &)> operator()(const std::vector<DataType> & params) const{
+			return(evaluator<0,DataType>()(*this, params));
+		}
+
+		void setWeighterConstructor(unsigned int index){
+			if(index>=sizeof...(WCs))
+				throw std::logic_error("Out of range weighter index");
+			selection=index;
+		}
+	};
+
+	template<typename Event, typename... WCs>
+	struct SwitchableWeighterConstructor{
+		static_assert(sizeof...(WCs)>0,"At least one weighter constructor implementation is required");
+
+		std::tuple<WCs...> implementations;
+		unsigned int selection;
+
+		SwitchableWeighterConstructor(WCs&&... wcs):implementations(wcs...),selection(0){}
+
+		template<unsigned int index, typename DataType>
+		struct evaluator{
+            using weighter_type = std::function<DataType(Event const &)>;
+            weighter_type operator()(const SwitchableWeighterConstructor& sw, const std::vector<DataType> & params) const{
+				if(index==sw.selection) {
+					auto weighter_instance = std::get<index>(sw.implementations)(params);
+                    weighter_type weighter = [=](Event const & e)->DataType{return weighter_instance(e);};
+                    return weighter;
+                }
+				return(evaluator<index+1,DataType>()(sw,params));
+			}
+		};
+
+		template<typename DataType> //invalid index case to stop template recursion
+		struct evaluator<sizeof...(WCs), DataType>{
+            using weighter_type = std::function<DataType(Event const &)>;
+			weighter_type operator()(const SwitchableWeighterConstructor& sw, const std::vector<DataType> & params) const{
+				__builtin_unreachable();
+			}
+		};
+
+        template<typename DataType>
+		std::function<DataType(Event const &)> operator()(const std::vector<DataType> & params) const{
+			return(evaluator<0,DataType>()(*this, params));
+		}
+
+		void setWeighterConstructor(unsigned int index){
+			if(index>=sizeof...(WCs))
+				throw std::logic_error("Out of range weighter index");
+			selection=index;
+		}
+	};
+
 	template<typename... Weighters>
 	struct SwitchableWeighter{
 		static_assert(sizeof...(Weighters)>0,"At least one weighter implementation is required");
@@ -337,9 +441,7 @@ namespace detail {
 
 	struct poissonLikelihood{
 		template <typename T>
-		T operator()(double dataCount, likelihood::detail::ExpectationProperties<T> const & expect) const {
-			std::vector<T> const & simulationWeights = expect.weights;
-			T lambda=std::accumulate(simulationWeights.begin(),simulationWeights.end(),T(0),std::plus<T>());
+		T operator()(double dataCount, T lambda) const {
 			if(lambda==0)
 				return(0);
 			//would this be more correct?
@@ -347,6 +449,13 @@ namespace detail {
 			T sum(lambda);
 			sum+=lgamma(dataCount+1);
 			return(dataCount*log(lambda)-sum);
+		}
+
+		template <typename T>
+		T operator()(double dataCount, likelihood::detail::ExpectationProperties<T> const & expect) const {
+			std::vector<T> const & simulationWeights = expect.weights;
+			T lambda=std::accumulate(simulationWeights.begin(),simulationWeights.end(),T(0),std::plus<T>());
+            return this->template operator()<T>(dataCount, lambda);
 		}
 	};
 
@@ -571,7 +680,7 @@ namespace detail {
             }
 
             if(w2_sum == 0) {
-                return poissonLikelihood()(k, w_sum, w2_sum);
+                return poissonLikelihood()(k, w_sum);
             }
 
             T one(1);
@@ -605,7 +714,7 @@ namespace detail {
             }
 
             if(w2_sum == 0) {
-                return poissonLikelihood()(k, w_sum, w2_sum);
+                return poissonLikelihood()(k, w_sum);
             }
 
             T one(1);
@@ -913,6 +1022,57 @@ namespace likelihood{
 		template<typename T>
         simpleDataWeighter operator()(const T& v) const{return simpleDataWeighter();}
 	};
+
+    template<typename Weighter, typename ParameterType>
+    struct asimovDataWeighterConstructor{
+
+        template<typename U, typename DataType>
+        struct type_convert {
+        };
+
+        template<typename U>
+        struct type_convert<U, U> {
+            U operator()(U const & x) const{
+                return U(x);
+            }
+        };
+
+        template<typename U, unsigned int Dim, typename T>
+        struct type_convert<U, phys_tools::autodiff::FD<Dim, T>> {
+            using result_type=phys_tools::autodiff::FD<Dim, T>;
+            U operator()(result_type const & x) const{
+                return type_convert<U, T>()(x.value());
+            }
+        };
+
+        struct WeighterWrapper {
+            Weighter weighter;
+
+            WeighterWrapper(){}
+            WeighterWrapper(const Weighter & w):weighter(w){}
+
+            template<typename Event>
+            ParameterType operator()(const Event & e) const{
+                using ReturnType = decltype(weighter(e));
+                return type_convert<ParameterType, ReturnType>()(weighter(e));
+            }
+        };
+
+        WeighterWrapper weighter;
+
+        void setAsimovWeighter(const Weighter & w) {
+            weighter = WeighterWrapper(w);
+        }
+
+        asimovDataWeighterConstructor(const Weighter & w) {
+            setAsimovWeighter(w);
+        }
+
+        template<typename T>
+        WeighterWrapper operator()(const T & t) const{
+            return weighter;
+        }
+    };
 
 	// fundamental wrapper object for setting up likelihood fits for models by comparing observed data
 	// events to simulated events
