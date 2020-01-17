@@ -569,7 +569,7 @@ public:
 		}
 		
 		///Get the internal coordinates within the histogram (bin indices) to which this iterator refers
-		const internalCoordinate* (&getCoordinates() const){
+		const internalCoordinate* const (&getCoordinates() const){
 			return(coordinates);
 		}
 		///Get the internal coordinate in dimension dim within the histogram (bin index) to which this iterator refers
@@ -762,7 +762,7 @@ public:
 		}
 		
 		///Get the internal coordinates within the histogram (bin indices) to which this iterator refers
-		const internalCoordinate* (&getCoordinates() const){
+		const internalCoordinate* const (&getCoordinates() const){
 			return(coordinates);
 		}
 		///Get the internal coordinate in dimension dim within the histogram (bin index) to which this iterator refers
