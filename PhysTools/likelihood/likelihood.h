@@ -1025,6 +1025,86 @@ namespace likelihood{
         }
     };
 
+    struct SAYLikelihoodConstUncertaintyMod {
+        double sigma;
+        double sigma2;
+        SAYLikelihoodConstUncertaintyMod(double sigma):sigma(sigma),sigma2(sigma*sigma){}
+        void SetSigma(double sigma) {
+            this->sigma = sigma;
+            this->sigma2 = sigma*sigma;
+        }
+        double GetSigma() {
+            return this->sigma;
+        }
+        template<typename T>
+        T operator()(double k, T const & w_sum, T const & w2_sum) const {
+            T new_sigma2 = w2_sum + this->sigma2;
+            if(w_sum <= 0 || new_sigma2 < 0) {
+                return(k==0?0:-std::numeric_limits<T>::max());
+            }
+
+            if(new_sigma2 == 0) {
+                return poissonLikelihood()(k, w_sum, new_sigma2);
+            }
+
+            T one(1);
+            T zero(0);
+            if(w_sum == zero) {
+                if(k == 0) {
+                    return zero;
+                }
+                else {
+                    return T(-std::numeric_limits<double>::infinity());
+                }
+            }
+
+            T alpha = w_sum*w_sum/new_sigma2 + one;
+            T beta = w_sum/new_sigma2;
+            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
+
+            return L;
+        }
+    };
+
+    struct SAYLikelihoodRelativeUncertaintyMod {
+        double sigma_over_mu;
+        SAYLikelihoodRelativeUncertaintyMod(double sigma_over_mu):sigma_over_mu(sigma_over_mu){}
+        void SetSigmaOverMu(double sigma_over_mu) {
+            this->sigma_over_mu = sigma_over_mu;
+        }
+        double GetSigmaOverMu() {
+            return this->sigma_over_mu;
+        }
+        template<typename T>
+        T operator()(double k, T const & w_sum, T const & w2_sum) const {
+            T new_sigma2 = w2_sum + pow(this->sigma_over_mu*w_sum, 2);
+            if(w_sum <= 0 || new_sigma2 < 0) {
+                return(k==0?0:-std::numeric_limits<T>::max());
+            }
+
+            if(new_sigma2 == 0) {
+                return poissonLikelihood()(k, w_sum, new_sigma2);
+            }
+
+            T one(1);
+            T zero(0);
+            if(w_sum == zero) {
+                if(k == 0) {
+                    return zero;
+                }
+                else {
+                    return T(-std::numeric_limits<double>::infinity());
+                }
+            }
+
+            T alpha = w_sum*w_sum/new_sigma2 + one;
+            T beta = w_sum/new_sigma2;
+            T L = gammaPriorPoissonLikelihood()(k, alpha, beta);
+
+            return L;
+        }
+    };
+
 	//A bin type for keeping events in their histogram bins
 
 	template<typename DataType>
