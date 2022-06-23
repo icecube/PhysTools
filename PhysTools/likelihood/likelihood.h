@@ -2397,16 +2397,15 @@ namespace likelihood{
         */
     private:   
         // these are matrices rather than vectors, makes it easier!
-        ublas::vector<double> *means = new ublas::vector<double>(_size);
-        ublas::vector<double> *stddevs = new ublas::vector<double>(_size);
+        std::shared_ptr<ublas::vector<double>> means =  std::make_shared<ublas::vector<double>>( ublas::vector<double>(_size));
+        std::shared_ptr<ublas::vector<double>> stddevs =  std::make_shared<ublas::vector<double>>( ublas::vector<double>(_size));
+        std::shared_ptr<ublas::matrix<double>> correlations =  std::make_shared<ublas::matrix<double>>( ublas::matrix<double>(_size, _size));
+        std::shared_ptr<ublas::matrix<double>> inverse =  std::make_shared<ublas::matrix<double>>( ublas::matrix<double>(_size, _size)); 
 
         double determinant;
         double lnorm;
     public:
-        ublas::matrix<double> *correlations = new ublas::matrix<double>(_size, _size);
-        ublas::matrix<double> *inverse = new ublas::matrix<double>(_size, _size); 
         
-
         GaussianNDPrior(std::vector<double>& _means, std::vector<double>& _stddevs, std::vector<std::vector<double>>& _correlations){
             /*
                 We need to calculate the determinant of this 2D matrix, and we need to verify the lengths of these arrays are the right shape! 
