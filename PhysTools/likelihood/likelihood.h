@@ -38,12 +38,11 @@
 #include "../autodiff.h"
 #include "../ThreadPool.h"
 
-
-namespace ublas = boost::numeric::ublas;
-
 namespace phys_tools{
 ///Tools for performing binned maximum likelihood fits
 namespace likelihood{
+
+    namespace ublas = boost::numeric::ublas;
 
 	//some useful type traits
 	template<typename T>
