@@ -22,6 +22,13 @@
 #include <boost/math/constants/constants.hpp>
 #include <boost/mpl/if.hpp>
 
+#include <boost/numeric/ublas/matrix.hpp>
+#include <boost/numeric/ublas/vector.hpp>
+#include <boost/numeric/ublas/io.hpp>
+#include <boost/numeric/ublas/matrix_proxy.hpp>
+#include <boost/numeric/ublas/lu.hpp>
+// #define BOOST_UBLAS_TYPE_CHECK 0
+
 #include "../lbfgsb/lbfgsb.h"
 
 #include "../histogram.h"
@@ -30,6 +37,9 @@
 
 #include "../autodiff.h"
 #include "../ThreadPool.h"
+
+
+namespace ublas = boost::numeric::ublas;
 
 namespace phys_tools{
 ///Tools for performing binned maximum likelihood fits
@@ -2327,6 +2337,123 @@ namespace likelihood{
 			return(limits(x)+prior(x));
 		}
 	};
+
+
+    double CalcDeterminant(ublas::matrix<double> m){
+        /*
+            http://www.richelbilderbeek.nl/CppUblasMatrixExample7.htm
+
+            This calculates the determinant for an arbitrary ublas matrix! Matrix `m` needs to be square 
+        */
+        assert(m.size1() == m.size2() && "Can only calculate the determinant of square matrices");
+        ublas::permutation_matrix<size_t> pivots(m.size1() );
+
+        const int is_singular = ublas::lu_factorize(m, pivots);
+
+        if (is_singular) return 0.0;
+
+        double d = 1.0;
+        const std::size_t sz = pivots.size();
+        for (std::size_t i=0; i != sz; ++i)
+        {
+            if (pivots(i) != i)
+            {
+            d *= -1.0;
+            }
+            d *= m(i,i);
+        }
+        return d;
+    }
+
+    template<class T> 
+    bool InvertMatrix (const ublas::matrix<T>& input, ublas::matrix<T>& inverse) { 
+        /*
+            Using code snippet from https://stackoverflow.com/questions/17240624/matrix-inversion-in-boost
+
+            Assigns inverse to provided matrix 'inverse'
+            returns True if successful, False if failed 
+        */ 
+
+        typedef ublas::permutation_matrix<std::size_t> pmatrix; 
+        ublas::matrix<T> A(input); 
+        // create a permutation matrix for the LU-factorization 
+        pmatrix pm(A.size1()); 
+
+        // perform LU-factorization 
+        int res = ublas::lu_factorize(A,pm); 
+        if( res != 0 )
+            return false; 
+
+        // create identity matrix of "inverse" 
+        inverse.assign(ublas::identity_matrix<T>(A.size1())); 
+        // backsubstitute to get the inverse 
+        ublas::lu_substitute(A, pm, inverse); 
+        return true; 
+    } 
+
+    template <size_t _size>
+    struct GaussianNDPrior{
+        /*
+            This is a generalization of the `Gaussian2DPrior` class 
+        */
+    private:   
+        // these are matrices rather than vectors, makes it easier!
+        ublas::vector<double> *means = new ublas::vector<double>(_size);
+        ublas::vector<double> *stddevs = new ublas::vector<double>(_size);
+
+        double determinant;
+        double lnorm;
+    public:
+        ublas::matrix<double> *correlations = new ublas::matrix<double>(_size, _size);
+        ublas::matrix<double> *inverse = new ublas::matrix<double>(_size, _size); 
+        
+
+        GaussianNDPrior(std::vector<double>& _means, std::vector<double>& _stddevs, std::vector<std::vector<double>>& _correlations){
+            /*
+                We need to calculate the determinant of this 2D matrix, and we need to verify the lengths of these arrays are the right shape! 
+                    See: https://en.wikipedia.org/wiki/Covariance_matrix#Covariance_matrix_as_a_parameter_of_a_distribution
+
+                We pre-calcualte the determinant and inverse since they're relevant later. Then we calculate the log-likelihood that a sample of values (x) is drawn from this distribution 
+            */
+
+            for (unsigned int i = 0 ; i< _size; i++){
+                (*stddevs)(i) = _stddevs[i];
+                (*means)(i) = _means[i];
+                for (unsigned int j=0; j<_size; j++){
+                    (*correlations)(i,j) = _correlations[i][j];
+                }
+            }
+
+            determinant = CalcDeterminant(*correlations);
+            bool success = InvertMatrix<double>(*correlations, *inverse);
+            if (!success){
+                throw std::invalid_argument("Correlations matrix was un-invertible!");
+            }
+
+            lnorm = log(sqrt(pow(boost::math::constants::one_div_two_pi<double>(),static_cast<int>(_size))/determinant));
+        }
+
+        template <typename DataType>
+        DataType operator()(std::vector<DataType> _x){
+            /*
+            This calculates the log likelihood of measuring _x given this correlated prior 
+            */
+            if(_x.size()!= _size){
+                throw std::invalid_argument("Vector should be same size as priors");
+            }
+
+            ublas::vector<DataType> divvy(_size);
+            
+            for (size_t i=0;i<_size;i++){
+                divvy(i) = ((*means)(i) - _x[i])/ (*stddevs)(i);
+            }
+
+            auto first = ublas::prod(*inverse, divvy);
+            auto final = ublas::inner_prod(divvy, first);
+            return lnorm - 0.5*final;
+
+        }
+    };
 
     struct ZigZagPrior{
 	private:
