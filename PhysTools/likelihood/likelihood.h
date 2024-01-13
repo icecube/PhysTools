@@ -2040,7 +2040,7 @@ namespace likelihood{
 					lastBestDiscreteIndex=dn;
 				}
 			}
-			//std::cout << " llh: " << bestLLH << std::endl;
+			// std::cout << " llh: " << bestLLH << std::endl;
 			return(bestLLH);
 		}
 
@@ -2338,32 +2338,6 @@ namespace likelihood{
 	};
 
 
-    double CalcDeterminant(ublas::matrix<double> m){
-        /*
-            http://www.richelbilderbeek.nl/CppUblasMatrixExample7.htm
-
-            This calculates the determinant for an arbitrary ublas matrix! Matrix `m` needs to be square 
-        */
-        assert(m.size1() == m.size2() && "Can only calculate the determinant of square matrices");
-        ublas::permutation_matrix<size_t> pivots(m.size1() );
-
-        const int is_singular = ublas::lu_factorize(m, pivots);
-
-        if (is_singular) return 0.0;
-
-        double d = 1.0;
-        const std::size_t sz = pivots.size();
-        for (std::size_t i=0; i != sz; ++i)
-        {
-            if (pivots(i) != i)
-            {
-            d *= -1.0;
-            }
-            d *= m(i,i);
-        }
-        return d;
-    }
-
     template<class T> 
     bool InvertMatrix (const ublas::matrix<T>& input, ublas::matrix<T>& inverse) { 
         /*
@@ -2422,7 +2396,31 @@ namespace likelihood{
                 }
             }
 
-            determinant = CalcDeterminant(*correlations);
+	        /*
+	            http://www.richelbilderbeek.nl/CppUblasMatrixExample7.htm
+
+	            This calculates the determinant for an arbitrary ublas matrix! Matrix `m` needs to be square 
+	        */
+	    	ublas::matrix<double> m = *correlations;
+	        assert(m.size1() == m.size2() && "Can only calculate the determinant of square matrices");
+	        ublas::permutation_matrix<size_t> pivots(m.size1() );
+
+	        const int is_singular = ublas::lu_factorize(m, pivots);
+
+	        double determinant = 1.0;
+	        if (is_singular) determinant = 0.0;
+	        else {
+		        const std::size_t sz = pivots.size();
+		        for (std::size_t i=0; i != sz; ++i)
+		        {
+		            if (pivots(i) != i)
+		            {
+		            determinant *= -1.0;
+		            }
+		            determinant *= m(i,i);
+		        }	        	
+	        }
+
             bool success = InvertMatrix<double>(*correlations, *inverse);
             if (!success){
                 throw std::invalid_argument("Correlations matrix was un-invertible!");
@@ -2431,8 +2429,12 @@ namespace likelihood{
             lnorm = log(sqrt(pow(boost::math::constants::one_div_two_pi<double>(),static_cast<int>(_size))/determinant));
         }
 
-        template <typename DataType>
-        DataType operator()(std::vector<DataType> _x){
+
+		template <typename DataType, typename ... ARGS>
+        DataType operator()(DataType const & arg0, ARGS const & ... args){
+
+			std::vector<DataType> _x { arg0, args... };
+
             /*
             This calculates the log likelihood of measuring _x given this correlated prior 
             */

@@ -8,6 +8,7 @@
 #include <string>
 #include <sstream>
 #include <map>
+#include <memory>
 
 #include <boost/filesystem.hpp>
 #include <boost/tuple/tuple.hpp>

@@ -409,7 +409,6 @@ namespace phys_tools{
 				errorsUpToDate=false;
 			}
 			
-			BOOST_SERIALIZATION_SPLIT_MEMBER();
 		};
 		
 		fcErrorValue operator*(double scale, const fcErrorValue& v);
