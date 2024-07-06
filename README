@@ -1,0 +1,6 @@
+```
+mkdir build build/lbfgsb
+./configure --with_boost=${SROOT} --prefix=$PREFIX
+make
+make install
+```
