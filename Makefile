@@ -38,7 +38,7 @@ all: $(STAT_PRODUCT) $(DYN_PRODUCT)
 
 $(DYN_PRODUCT) : $(OBJS)
 	@echo Linking $(DYN_PRODUCT)
-	@$(CXX) $(LDFLAGS) $(DYN_OPT) -shared $(OBJS) -o $(DYN_PRODUCT)
+	@$(CXX) $(DYN_OPT) -shared $(OBJS) -o $(DYN_PRODUCT) $(LDFLAGS)
 $(STAT_PRODUCT) : $(OBJS)
 	@echo Linking $(STAT_PRODUCT)
 	@$(AR) -rcs $(STAT_PRODUCT) $(OBJS)
