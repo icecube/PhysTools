@@ -4,6 +4,7 @@
 #ifndef PHYSTOOLS_BIN_TYPES_H
 #define PHYSTOOLS_BIN_TYPES_H
 
+#include <boost/serialization/split_member.hpp>
 #include "PhysTools/hdf5_serialization.h"
 #include "PhysTools/histogram.h"
 
