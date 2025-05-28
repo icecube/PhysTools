@@ -793,8 +793,9 @@ namespace autodiff{
 		T te(e);
 		result.v=pow(b.v,te);
 		const unsigned int n=detail::dimensionExtractor<FD,FD_t::N,typename FD_t::BaseType>::nVars(result);
+		T scale = std::pow(b.v, te - T(1)) * e;
 		std::transform(result.g,result.g+n,result.g,
-					   std::bind2nd(std::multiplies<T>(),pow(b.v,te-T(1))*e));
+				[scale](T x) {return x*scale;});
 		return(result);
 	}
 	
@@ -807,8 +808,9 @@ namespace autodiff{
 		T tb(b);
 		result.v=pow(tb,e.v);
 		const unsigned int n=detail::dimensionExtractor<FD,FD_t::N,typename FD_t::BaseType>::nVars(result);
+		T scale = result.v*std::log(tb);
 		std::transform(result.g,result.g+n,result.g,
-					   std::bind2nd(std::multiplies<T>(),result.v*log(tb)));
+				[scale](T x) {return x*scale;});
 		return(result);
 	}
 	
@@ -1074,7 +1076,7 @@ namespace autodiff{
 			result.v=-result.v;
 			const unsigned int n=detail::dimensionExtractor<FD,nVars,T>::nVars(result);
 			std::transform(result.g,result.g+n,result.g,
-						   std::bind2nd(std::multiplies<T>(),T(-1)));
+					[](T x) {return -x;});
 		}
 		return(result);
 	}
@@ -1088,7 +1090,7 @@ namespace autodiff{
 			result.v=-result.v;
 			const unsigned int n=detail::dimensionExtractor<FD,nVars,T>::nVars(result);
 			std::transform(result.g,result.g+n,result.g,
-						   std::bind2nd(std::multiplies<T>(),T(-1)));
+					[](T x) {return -x;});
 		}
 		return(result);
 	}
