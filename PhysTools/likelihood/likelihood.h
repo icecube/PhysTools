@@ -8,10 +8,25 @@
 #include <numeric>
 #include <random>
 
-#ifdef __APPLE__
+#if defined(__x86_64__) || defined(_M_X64)
     #include <xmmintrin.h>
-#elif __linux__
-    #include <stdexcept>
+    #define ENABLE_FLOAT_EXCEPTIONS() \
+        _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | \
+                               _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | \
+                               _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW)
+    #define DISABLE_FLOAT_EXCEPTIONS() \
+        _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( \
+                               _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | \
+                               _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW))
+#elif defined(__linux__)
+    #include <fenv.h>
+    #define ENABLE_FLOAT_EXCEPTIONS() \
+        feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW)
+    #define DISABLE_FLOAT_EXCEPTIONS() \
+        fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW)
+#else
+    #define ENABLE_FLOAT_EXCEPTIONS()
+    #define DISABLE_FLOAT_EXCEPTIONS()
 #endif
 
 #include <type_traits>
@@ -729,13 +744,7 @@ namespace likelihood{
     struct thorstenLikelihood {
         template<typename T>
         T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
-#ifdef __APPLE__
-            //_MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW);
-#elif __linux__
-            //feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
-#endif
+	    ENABLE_FLOAT_EXCEPTIONS();
 
             double log_percentage = log(0.99);
 
@@ -851,22 +860,14 @@ namespace likelihood{
 
             return accumulate(terms.begin(), terms.end());
 
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-            fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
+	    DISABLE_FLOAT_EXCEPTIONS();
         }
     };
 /*
     struct thorstenLikelihood {
         template<typename T>
         T operator()(double k, const std::vector<T>& raw_w, int n_events) const {
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
-#elif __linux__
-            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
+	    ENABLE_FLOAT_EXCEPTIONS();
 
             unsigned int count = 1;
             std::vector<unsigned int> kmc;
@@ -942,20 +943,11 @@ namespace likelihood{
                 L += lf;
                 //std::cout << "L += " << lf << std::endl;
                 //std::cout << "L = " << L << std::endl;
-
-#ifdef __APPLE__
-                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
+		DISABLE_FLOAT_EXCEPTIONS();
                 return L;
             }
             else {
-#ifdef __APPLE__
-                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
+		DISABLE_FLOAT_EXCEPTIONS();
                 return T(0);
             }
         }

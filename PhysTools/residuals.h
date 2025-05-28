@@ -6,11 +6,28 @@
 #include <algorithm>
 #include <numeric>
 #include <random>
-#ifdef __APPLE__
+
+#if defined(__x86_64__) || defined(_M_X64)
     #include <xmmintrin.h>
-#elif __linux__
-    #include <stdexcept>
+    #define ENABLE_FLOAT_EXCEPTIONS() \
+        _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | \
+                               _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | \
+                               _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW)
+    #define DISABLE_FLOAT_EXCEPTIONS() \
+        _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( \
+                               _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | \
+                               _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW))
+#elif defined(__linux__)
+    #include <fenv.h>
+    #define ENABLE_FLOAT_EXCEPTIONS() \
+        feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW)
+    #define DISABLE_FLOAT_EXCEPTIONS() \
+        fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW)
+#else
+    #define ENABLE_FLOAT_EXCEPTIONS()
+    #define DISABLE_FLOAT_EXCEPTIONS()
 #endif
+
 #include <type_traits>
 #include <vector>
 #include <deque>
@@ -115,11 +132,7 @@ struct almost_equal<phys_tools::autodiff::FD<Dim, T> > {
 template<typename T>
 struct residual_computer {
     void operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m, std::vector<T>& res) {
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
-#elif __linux__
-            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
+	ENABLE_FLOAT_EXCEPTIONS();
         //std::cout << std::setprecision(16);
         std::cout << "residual_computer" << std::endl;
         // Useful things to precompute
@@ -316,11 +329,7 @@ struct residual_computer {
 
         // Clean up the nasty stuff we defined
 		#undef c
-#ifdef __APPLE__
-                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
+	DISABLE_FLOAT_EXCEPTIONS();
         //return c;
     }
 };
@@ -342,7 +351,7 @@ template<unsigned int digits10, typename T>
 struct contour_integral_bignum {
     using big_type=boost::multiprecision::number<boost::multiprecision::mpfr_float_backend<digits10, boost::multiprecision::allocate_stack> >;
     big_type operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m) {
-        feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+    	ENABLE_FLOAT_EXCEPTIONS();
         const unsigned int M = m.size();
         const unsigned int max_m = *std::max_element(m.begin(), m.end());
         std::vector<big_type> big_z(z.begin(), z.end());
@@ -361,7 +370,7 @@ struct contour_integral_bignum {
         //    residual_sum += c(k,0);
         //}
         //#undef c
-        fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+	DISABLE_FLOAT_EXCEPTIONS();
         return residual_sum;
     }
 };
@@ -383,7 +392,7 @@ struct contour_integral_bignum<digits10, phys_tools::autodiff::FD<Dim, T> > {
     using result_type=phys_tools::autodiff::FD<Dim, T>;
     using big_type=phys_tools::autodiff::FD<Dim, boost::multiprecision::number<boost::multiprecision::mpfr_float_backend<digits10, boost::multiprecision::allocate_stack> > >;
     big_type operator()(std::vector<result_type>const& z, std::vector<unsigned int>const& n, std::vector<result_type>const& s, std::vector<unsigned int>const& m) {
-        feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+    	ENABLE_FLOAT_EXCEPTIONS();
         const unsigned int M = m.size();
         const unsigned int max_m = *std::max_element(m.begin(), m.end());
         std::vector<big_type> big_z(z.begin(), z.end());
@@ -402,7 +411,7 @@ struct contour_integral_bignum<digits10, phys_tools::autodiff::FD<Dim, T> > {
         //    residual_sum += c(k,0);
         //}
         //#undef c
-        fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+	DISABLE_FLOAT_EXCEPTIONS();
         return residual_sum;
     }
 };
@@ -473,7 +482,7 @@ template<typename T>
 struct thorsten_fast {
     typedef typename make_big_type<16, T>::big_type big_type;
     big_type operator()(std::vector<T>const& w, std::vector<T>const& s, unsigned int D) {
-        feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+    	ENABLE_FLOAT_EXCEPTIONS();
         unsigned int M = s.size();
         //const unsigned int max_m = *std::max_element(m.begin(), m.end());
 
@@ -545,7 +554,7 @@ struct thorsten_fast {
         std::cout << "result:" << result << std::endl;
         //T result = static_cast<T>(big_result);
     
-        fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
+	DISABLE_FLOAT_EXCEPTIONS();
         return result;
     }
 };
@@ -554,11 +563,7 @@ struct thorsten_fast {
 template<typename T>
 struct contour_integral {
     T operator()(std::vector<T>const& z, std::vector<unsigned int>const& n, std::vector<T>const& s, std::vector<unsigned int>const& m) {
-#ifdef __APPLE__
-            _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() | _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW);
-#elif __linux__
-            feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
+	ENABLE_FLOAT_EXCEPTIONS();
         const unsigned int M = m.size();
         const unsigned int max_m = *std::max_element(m.begin(), m.end());
         std::vector<T> c;
@@ -571,11 +576,7 @@ struct contour_integral {
             residual_sum += c(k,0);
         }
         #undef c
-#ifdef __APPLE__
-                _MM_SET_EXCEPTION_MASK(_MM_GET_EXCEPTION_MASK() & ~( _MM_MASK_DIV_ZERO | _MM_MASK_INVALID | _MM_MASK_OVERFLOW | _MM_MASK_UNDERFLOW));
-#elif __linux__
-                fedisableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
+	DISABLE_FLOAT_EXCEPTIONS();
         return residual_sum;
     }
 };
