@@ -325,7 +325,7 @@ PREFIX=$PREFIX
 
 # General Settings
 VERSION=${VERSION}
-CXXFLAGS= -std=c++11 -O2 -g -fPIC
+CXXFLAGS= -std=c++14 -O3 -g -fPIC
 
 # Libraries
 CXXFLAGS+=${BOOST_CFLAGS} ${HDF5_CFLAGS}
