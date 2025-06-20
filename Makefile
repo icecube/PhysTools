@@ -77,6 +77,7 @@ install :
 	cp $(LBFGSB_HEADERS) $(PREFIX)/include/$(NAME)/lbfgsb/
 	mkdir -p $(PREFIX)/include/$(NAME)/likelihood
 	cp $(LIKELIHOOD_HEADERS) $(PREFIX)/include/$(NAME)/likelihood/
+	cp phystools.pc $(PREFIX)/lib/pkgconfig/
 
 docs : doxygen
 

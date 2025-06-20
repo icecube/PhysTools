@@ -311,6 +311,19 @@ if [ ! -d ./build/ ]; then
     mkdir build;
 fi
 
+echo '
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: PhysTools
+Description: Likelihood tools.
+URL: https://github.com/icecube/PhysTools
+Version: 0.0.1
+Requires: gsl >= 1.15 hdf5 >= 1.8 boost >= 1.65
+Libs: -L${libdir}/lib -lPhysTools
+Cflags: -I${includedir}/PhysTools
+' >> phystools.pc
+
 echo "Generating config.mk..."
 echo "# Compiler
 CC=$CC
