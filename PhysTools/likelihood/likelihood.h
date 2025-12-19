@@ -1523,8 +1523,10 @@ namespace likelihood{
 
                 auto w_sum = accumulate(expectationWeights.begin(), expectationWeights.end());
                 auto w2_sum = accumulate(expectationSqWeights.begin(), expectationSqWeights.end());
+				static std::atomic<bool> printed_bad_bin{false};
 
-                if(observationAmount > 0 && w_sum <= 0) {
+				if(observationAmount > 0 && w_sum <= 0 && !printed_bad_bin.exchange(true)) {	
+                // if(observationAmount > 0 && w_sum <= 0) {
                     std::cout << "BAD BIN" << std::endl;
                     std::cout << "Printing weights" << std::endl;
                     for(auto w : expectationWeights) {
